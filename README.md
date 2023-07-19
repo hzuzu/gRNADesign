@@ -126,8 +126,8 @@ python gRNADesign.py mismatch -g  gRNA.csv -t cDNA_transcript.fasta -m 5
 
 The results are written to a folder 'results'
 
-results/grna : The gRNAs designed are in this folder
-results/all_alignments : The alignments of gRNA to the transcripts are in this folder
-results/mismatches : The alignments of gRNA to the transcripts having mismatches less than or equal to the specified mismatches. 
+results/grna : The gRNAs designed are in this folder <br/>
+results/all_alignments : The alignments of gRNA to the transcripts are in this folder <br/>
+results/mismatches : The alignments of gRNA to the transcripts having mismatches less than or equal to the specified mismatches. <br/>
 
 For more information contact Huzaifa hassan at hhassan@stowers.org
