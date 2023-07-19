@@ -1,0 +1,48 @@
+name: gRNADesign
+channels:
+  - bioconda
+  - defaults
+  - imperial-college-research-computing
+  - conda-forge
+dependencies:
+  - _libgcc_mutex=0.1=main
+  - _openmp_mutex=5.1=1_gnu
+  - biopython=1.78=py37h7f8727e_0
+  - brotli=1.0.9=h9c3ff4c_4
+  - ca-certificates=2023.05.30=h06a4308_0
+  - certifi=2020.6.20=pyhd3eb1b0_3
+  - charset-normalizer=3.2.0=pyhd8ed1ab_0
+  - idna=3.4=pyhd8ed1ab_0
+  - ld_impl_linux-64=2.38=h1181459_1
+  - libblas=3.9.0=16_linux64_openblas
+  - libcblas=3.9.0=16_linux64_openblas
+  - libffi=3.4.4=h6a678d5_0
+  - libgcc-ng=11.2.0=h1234567_1
+  - libgfortran-ng=11.2.0=h00389a5_1
+  - libgfortran5=11.2.0=h1234567_1
+  - libgomp=11.2.0=h1234567_1
+  - liblapack=3.9.0=16_linux64_openblas
+  - libopenblas=0.3.21=h043d6bf_0
+  - libstdcxx-ng=11.2.0=h1234567_1
+  - ncurses=6.4=h6a678d5_0
+  - numpy=1.21.6=py37h976b520_0
+  - openssl=1.1.1u=h7f8727e_0
+  - pandas=1.3.5=py37he8f5f7f_0
+  - pip=23.2=pyhd8ed1ab_0
+  - pysocks=1.7.1=py37_0
+  - python=3.7.16=h7a1cb2a_0
+  - python-dateutil=2.8.2=pyhd8ed1ab_0
+  - python_abi=3.7=2_cp37m
+  - pytz=2023.3=pyhd8ed1ab_0
+  - readline=8.2=h5eee18b_0
+  - requests=2.31.0=pyhd8ed1ab_0
+  - setuptools=59.8.0=py37h89c1867_1
+  - six=1.16.0=pyh6c4a22f_0
+  - sqlite=3.41.2=h5eee18b_0
+  - tk=8.6.12=h1ccaba5_0
+  - urllib3=2.0.3=pyhd8ed1ab_0
+  - viennarna=2.4.18=py37hfecc14a_0
+  - wheel=0.38.4=py37h06a4308_0
+  - xz=5.4.2=h5eee18b_0
+  - zlib=1.2.13=h5eee18b_0
+prefix: /home/hh2323/anaconda3/envs/gRNADesign
