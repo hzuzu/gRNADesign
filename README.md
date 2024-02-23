@@ -17,7 +17,7 @@ The design module designs gRNAs from an input fasta file. This modules runs RNAp
 1. Run RNA fold for each gene (Complete sequence). RNA fold takes a fasta sequence as input along with the length of gRNAs.
 2. Take sliding window of gRNAs for a specific length from gene fasta. (The length of gRNA will be equal length from step 1. e.g., 20, 22, 23)
 3. Compute the mean score of all columns (The number of columns will be equal to length of the gRNA) in each row. This gives one value for each bp of a gene.
-4. For each sequence from step 2, take the scores from step 3 (The number of scores should be equal to the length of the gRNA sequence). Compute a mean of these scores to give one single score for each gRNA.
+4. For each sequence from step 2, take the scores from step 3 (The number of scores should be equal to the length of the gRNA sequence). Compute a mean of these scores to give one single score for each gRNA
 
 ### mismatch module
 
@@ -36,7 +36,7 @@ However additional tools mentioned below are required for running the pipeline. 
 **Additional tools**
 
 
-The mismatch mdule uses water aligner from [EMBOSS](https://ssbio.readthedocs.io/en/latest/instructions/emboss.html).
+The mismatch module uses water aligner from [EMBOSS](https://ssbio.readthedocs.io/en/latest/instructions/emboss.html).
 The installation instructions are mentioned in the links above. 
 
 To run it on Stowers HPC, Emboss module is already installed and can be loaded using
@@ -79,7 +79,7 @@ Optional Arguments:
 
 Subcommands:
   {all,design,mismatch}
-    all                 Arguments to run full piepline
+    all                 Arguments to run full pipeline
     design              'design' specific arguments
     mismatch            'mismatch' specific arguments
 
@@ -117,7 +117,7 @@ Arguments:
   -l LENGTH, --length LENGTH
                         Length of gRNAs to design (Optional). Default is 23
   -m MISMATCHES, --mismatches MISMATCHES
-                        The number of mismatches to report in a seperate file.
+                        The number of mismatches to report in a separate file.
                         Default is 5
   -p NUM_PROCESSES, --num_processes NUM_PROCESSES
                         The number of processes/threads to use. Default is 1
@@ -151,19 +151,19 @@ The results/grna will have one file with the name used while running the pipelin
 
 The columns of gRNA.csv are described below:
 
-* gRNA_name : The name here will be the sequnce id of the input sequences followed by the start and the end cordinate where this gRNA is from on the seqenuce.
-* seq_23nt : The lenght of the gRNA. Default is 23, unless user defined.
-* Gene|Transcript : The name here will be the sequnce id of the input sequences.
-* Seq_start : The start coordinate where this gRNA is from on the seqenuce.
-* Seq_end : The end coordinate where this gRNA is from on the seqenuce.
+* gRNA_name : The name here will be the sequence id of the input sequences followed by the start and the end coordinate where this gRNA is from on the sequence.
+* seq_23nt : The length of the gRNA. Default is 23, unless user defined.
+* Gene|Transcript : The name here will be the sequence id of the input sequences
+* Seq_start : The start coordinate where this gRNA is from on the sequence
+* Seq_end : The end coordinate where this gRNA is from on the sequence
 * Average_score : Average is the score defined in the design module
-* G_Percentage : Percenate of Base 'G' in the gRNA
-* C_Percentage : Percenate of Base 'C' in the gRNA
-* A_Percentage : Percenate of Base 'A' in the gRNA
-* T_Percentage : Percenate of Base 'T' in the gRNA
+* G_Percentage : Percentage of Base 'G' in the gRNA
+* C_Percentage : Percentage of Base 'C' in the gRNA
+* A_Percentage : Percentage of Base 'A' in the gRNA
+* T_Percentage : Percentage of Base 'T' in the gRNA
 
 
-The results/all_alignments and results/mismatches will have one file for each gRNA. results/all_alignments will have all the alignments of gRNA mapping to each gene/transcript from the TRANSCRIPT_FASTA file and  results/mismatches will have the same alignments filtered for gene/trasncript with total mismatch of specified mismatches. 
+The results/all_alignments and results/mismatches will have one file for each gRNA. results/all_alignments will have all the alignments of gRNA mapping to each gene/transcript from the TRANSCRIPT_FASTA file and  results/mismatches will have the same alignments filtered for gene/transcript with total mismatch of specified mismatches. 
 
 * The columns of all_alignments.csv (eg all_alignments_gRNA_1.csv) are described below:
 * Sequence ID : The ID of sequence from the input TRANSCRIPT_FASTA file
@@ -171,11 +171,11 @@ The results/all_alignments and results/mismatches will have one file for each gR
 * gRNA_align_end : Alignment end of the gRNA on the gene/transcript
 * seq_align_start : Alignment start of the gene/transcript
 * seq_align_end : Alignment end of the gene/transcript
-* identity : Number of aligned bases inlcudin gaps in gRNA
+* identity : Number of aligned bases including gaps in gRNA
 * total_aligned_len : Number of bases which aligned between the two sequences
 * missing_start : The number of unaligned bases at the start of gRNA 
 * missing_end : The number of unaligned bases at the end of gRNA 
-* added_aligned_len : This is the total_aligned_len + missing_start + missing_end (Which represnts a hypothetical aligned + unaligned length)
+* added_aligned_len : This is the total_aligned_len + missing_start + missing_end (Which represents a hypothetical aligned + unaligned length)
 * gRNA_gaps : The number of gaps in the gRNA for this alignment
 * seq_gaps : The number of gaps in the gene/transcript for this alignment
 * total_mismatches : This is added_aligned_len - identity ( Which is the difference of aligned bases and the total alignment including the unaligned length)

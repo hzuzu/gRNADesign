@@ -268,13 +268,13 @@ def parse_arguments():
     subparsers = parser.add_subparsers(title="Subcommands", dest="subcommand")
 
     # Create a parser for the 'all' subcommand
-    parser_all = subparsers.add_parser("all", help="Arguments to run full piepline")
+    parser_all = subparsers.add_parser("all", help="Arguments to run full pipeline")
     parser_all.add_argument("-f", "--fasta", type = str,  help='Fasta file with sequences to design gRNA',required=True)
     parser_all.add_argument("-t", "--transcript_fasta", help='cDNA fasta file', type=str, required=True)
     parser_all.add_argument("-o", "--output_file",  type = str, help='Output CSV file', required=True)
     parser_all.add_argument("-n", "--top_N", type = int, help='The number of sequences to write to file (based on highest score) (Optional). Default is top 10')
     parser_all.add_argument("-l", "--length", type= int, help='Length of gRNAs to design (Optional). Default is 23')
-    parser_all.add_argument("-m", "--mismatches", type=int, help='The number of mismatches to report in a seperate file. Default is 5')
+    parser_all.add_argument("-m", "--mismatches", type=int, help='The number of mismatches to report in a separate file. Default is 5')
     parser_all.add_argument("-p", "--num_processes", type=int,default=1, help='The number of processes/threads to use. Default is 1')
 
     parser_all._optionals.title = "Arguments"
@@ -293,7 +293,7 @@ def parse_arguments():
     parser_mismatch.add_argument("-g", "--grna_file",type=str, help='Fasta file with sequences (recommended fasta file)', required=True)
     parser_mismatch.add_argument("-t", "--transcript_fasta",type=str, help='cDNA fasta file', required=True)
     parser_mismatch.add_argument("-p", "--num_processes", type=int,default=1, help='The number of processes/threads to use. Default is 1')
-    parser_mismatch.add_argument("-m", "--mismatches", type=int, help='The number of mismatches to report in a seperate file. Default is 5')
+    parser_mismatch.add_argument("-m", "--mismatches", type=int, help='The number of mismatches to report in a separate file. Default is 5')
     parser_mismatch._optionals.title = "Arguments"
     parser._optionals.title = "Optional Arguments"
 
