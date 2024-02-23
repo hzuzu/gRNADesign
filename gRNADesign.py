@@ -3,10 +3,13 @@
 #
 #author: Huzaifa Hassan
 #Date: 07/17/2023
-# Script to run,gRNA design, parse RNAplfold output results and FASTA sequence into 22bp sequences.
-# The scores are first averaged by row and then again averaged for the scores of individual bases of the 22bp sequence. (Designed by Ariel Bazzini)
+# Script to run,gRNA design, parse RNAplfold output results and FASTA sequence into 23bp sequences.
+# The scores are first averaged by row and then again averaged for the scores of individual bases of the 23bp sequence. (Designed by Ariel Bazzini)
 
 # run 'python RNAplfold_top.py -h' for details 
+
+# 02/23
+# Added parallelization, optimized the code and added more documentation
 #####################################
 
 #!/usr/bin/env python3
@@ -23,6 +26,7 @@ import re
 import sys
 import os
 import glob
+import multiprocessing as mp
 
 
 # Create directories
@@ -54,7 +58,7 @@ def mkdir(subcommand):
 
 
 
-def run_RNAplfold_top(seq_fasta, top_N=None, len_grna=22):
+def run_RNAplfold_top(seq_fasta, top_N=None, len_grna=23):
     if sys.version_info[0] < 3:
         raise Exception("Please use Python 3.7 or higher \n To change python version on Stowers servers Run 'pyenv shell 3.7.2' ")
 
@@ -78,9 +82,9 @@ def run_RNAplfold_top(seq_fasta, top_N=None, len_grna=22):
             rows_all.append(l_str) # append all rows to list
         #print(rows_all)
         df_rows = pd.DataFrame(rows_all) #convert the aboves list to pandas df for sorting.
-        df_rows.columns = ["Gene|Longest_transcript" ,  "seq_" + str(len_grna) + "nt" , "Seq_start" , "Seq_end" , "Average_score"] #Select only necessary columns for sorting.
+        df_rows.columns = ["Gene|Transcript" ,  "seq_" + str(len_grna) + "nt" , "Seq_start" , "Seq_end" , "Average_score"] #Select only necessary columns for sorting.
         df_rows_sort = df_rows.sort_values(by=['Average_score'], ascending= False) #Sort the column score by descending order
-        df_rows_sort['gRNA_name'] = df_rows_sort['Gene|Longest_transcript'] + "_" + df_rows_sort['Seq_start'] + "_" + df_rows_sort['Seq_end'] #Create a new column with gRNA name
+        df_rows_sort['gRNA_name'] = df_rows_sort["Gene|Transcript"] + "_" + df_rows_sort['Seq_start'] + "_" + df_rows_sort['Seq_end'] #Create a new column with gRNA name
         if top_N: #If only the top rows are requested this will select only the top rows or else will output all.
             all_top_rows_df.append(df_rows_sort.head(top_N))
         else:
@@ -92,7 +96,7 @@ def run_RNAplfold_top(seq_fasta, top_N=None, len_grna=22):
     all_top_rows_df['C_Percentage'] = round(all_top_rows_df["seq_" + str(len_grna) + "nt"].str.count('C', re.I) *100 / len_grna, 3)
     all_top_rows_df['A_Percentage'] = round(all_top_rows_df["seq_" + str(len_grna) + "nt"].str.count('A', re.I) *100 / len_grna, 3)
     all_top_rows_df['T_Percentage'] = round(all_top_rows_df["seq_" + str(len_grna) + "nt"].str.count('T', re.I) *100 / len_grna, 3)
-    all_top_rows_df = all_top_rows_df[['gRNA_name', 'seq_' + str(len_grna) + 'nt', 'Gene|Longest_transcript', 'Seq_start', 'Seq_end',  'Average_score', 'G_Percentage', 'C_Percentage', 'A_Percentage', 'T_Percentage']] #rearrange columns
+    all_top_rows_df = all_top_rows_df[['gRNA_name', 'seq_' + str(len_grna) + 'nt', "Gene|Transcript", 'Seq_start', 'Seq_end',  'Average_score', 'G_Percentage', 'C_Percentage', 'A_Percentage', 'T_Percentage']] #rearrange columns
     return all_top_rows_df
 
 
@@ -107,38 +111,72 @@ def water_cmdline(g_fasta, tran_fasta):
     water_cmd.bsequence = "asis:" + tran_fasta
     water_cmd.outfile = "stdout"  # Redirect the output to stdout
 
-    run_water = sb.run(str(water_cmd), capture_output=True, text=True, shell=True)
-    stdout_output = run_water.stdout
-    return stdout_output
+    run_water = sb.run(str(water_cmd), 
+                       stdout=sb.PIPE,
+                       stderr=sb.PIPE,
+                       text=True, 
+                       shell=True)
+
+    return run_water.stdout
 
 
 #parse the output of water
-def parse_water_output(stdout_output, len_grna):
+def parse_water_output(stdout_output, len_grna=23):
     """
-    parse the output of water and return the alignment length, identity, mismatch, and gap
+    Parse the output of water and return the alignment length, identity, mismatch, and gap.
     """
+    # Ensure len_grna is an integer
     if not isinstance(len_grna, int):
         len_grna = int(len_grna)
 
     lines = stdout_output.split('\n')
+
+    # Parse aligned identity, gRNA gaps, and total aligned length
     line_1 = lines[23].strip().split('/')
     identity = int(line_1[0].strip().split(' ')[-1]) # aligned identity
-    total_aligned_len = int(line_1[1].strip().split(' ')[0]) #total length of aligned sequcne including gaps and mismatches
+    gRNA_gaps = int(lines[25].strip().split('/')[0].strip().split(' ')[-1])
+    total_aligned_len = int(line_1[1].strip().split(' ')[0]) # total length of aligned sequence including gaps and mismatches
 
+    # Parse gRNA alignment start and end
     line_2 = lines[31].strip().split(' ')
     line_2 = list(filter(None, line_2))
-    align_start = int(line_2[1]) #sequence start of query
-    align_end = int(line_2[-1]) #sequence end of query
+    gRNA_align_start = int(line_2[1]) # sequence start of query
+    gRNA_align_end = int(line_2[-1]) # sequence end of query
 
-    add_start = align_start - 1 #gap in start of seq
-    add_end = len_grna - align_end #gap in end of seq
-    total_add = add_start + add_end #total gap at start and end
-    added_aligned_len = total_aligned_len + total_add #Add the total length of aligned sequcne + total gaps at start and end 
+    # Parse sequence alignment start and end
+    line_3 = lines[33].strip().split(' ')
+    line_3 = list(filter(None, line_3))
+    seq_align_start = int(line_3[1]) # sequence start of query
+    seq_align_end = int(line_3[-1]) # sequence end of query
+    seq_gaps = line_3[3].count('-')
 
+    # Calculate additional gaps at start and end of sequence
+    add_start = gRNA_align_start - 1 # gap in start of seq
+    add_end = len_grna - gRNA_align_end # gap in end of seq
+    total_add = add_start + add_end # total gap at start and end
+    added_aligned_len = total_aligned_len + total_add # Add the total length of aligned sequence + total gaps at start and end 
+
+    # Calculate mismatch length
     mismatch_len = added_aligned_len - identity
-    return [align_start, align_end,identity, total_aligned_len, add_start, add_end, added_aligned_len, mismatch_len]
-    
 
+    return {
+        'gRNA_align_start' : gRNA_align_start,
+        'gRNA_align_end' : gRNA_align_end,
+        'seq_align_start': seq_align_start,
+        'seq_align_end': seq_align_end,
+        'identity' : identity,
+        'total_aligned_len' : total_aligned_len,
+        'missing_start' : add_start,
+        'missing_end' : add_end,
+        'added_aligned_len' : added_aligned_len,
+        'gRNA_gaps': gRNA_gaps,
+        'seq_gaps': seq_gaps,
+        'total_mismatches' : mismatch_len
+    }
+
+def run_water_parallel(args):
+    seq_name, seq_seq, g_seq = args
+    return (seq_name, parse_water_output(water_cmdline(g_seq, seq_seq), len(g_seq)))    
 
 def read_delimited_file(file_path, sep = "\t",header = 0):
     """
@@ -166,12 +204,13 @@ def delete_files_with_endings(extensions):
             except FileNotFoundError:
                 continue
 
-def run_mismatch(args, grnafile = None):
+def run_mismatch(args, grnafile = None, num_processes = 1):
         if grnafile:
             grnafile = grnafile
         else:
             grnafile = args.grna_file
-            # Number of mismatches to report
+        
+        # Number of mismatches to report
         mismatches_n = int(args.mismatches) if args.mismatches else int(5)
 
         # Read gRNA fasta file
@@ -189,26 +228,36 @@ def run_mismatch(args, grnafile = None):
 
         for g_name, g_seq in grna_dict.items():
             #outfile_all = f"all_alignments_{g_name}.csv"
+
+            # gRNA_seq = "AATCGACCGA"
+
+            # Specify the number of processes
+            num_processes = num_processes
+
+            # Create a pool of processes
+            pool = mp.Pool(processes=num_processes)
+
+            # Map the function to the list of arguments and obtain results
+            results = pool.map(run_water_parallel, [(seq_name, seq_seq, g_seq) for seq_name, seq_seq in trans_dict.items()])
+
+            # Close the pool to release resources
+            pool.close()
+            pool.join()
+
+            # Convert the list of results to a dictionary
+            grna_align = {seq_name: result for seq_name, result in results}
+            df_grna_align = pd.DataFrame.from_dict(grna_align, orient="index").reset_index().rename(columns={"index": "Sequence ID"})
+
+            # save file
             outfile_all = os.path.join(all_align_dir,f"all_alignments_{g_name}.csv")
-            y = open(outfile_all, 'w')
-            y.write("Gene/transcript" + "," + "align_start" + "," + "align_end" + "," + "identity" + "," + "query_aligned_len" + "," + "missing_start_bp" + "," + "missing_end_bp" + "," + "total_missing_bp" + "," + "total_aligned_length" + ',' + "mismatches" + '\n')
+            df_grna_align.to_csv(outfile_all, index=False)
 
             if mismatches_n:
                 outfile_mismatches = os.path.join(mismatches_dir,f"mismatches_{mismatches_n}_alignments_{g_name}.csv")
-                z = open(outfile_mismatches, 'w')
-                z.write(f"Gene/transcript" + "," + "align_start" + "," + "align_end" + "," + "identity" + "," + "query_aligned_len" + "," + "missing_start_bp" + "," + "missing_end_bp" + "," + "total_missing_bp" + "," + "total_aligned_length" + ',' + "mismatches" + '\n')
+                df_grna_align_mismatch = df_grna_align[df_grna_align['total_mismatches'] <=mismatches_n]
+                df_grna_align_mismatch.to_csv(outfile_mismatches, index=False)
 
-            for seq_id, trans_seq in trans_dict.items():
-                #print(seq_id, trans_seq)
-                water_out= water_cmdline(g_seq, trans_seq)
-                #print(water_out)
-                rnafold_out= [str(seq_id)] + parse_water_output(water_out, str(len(g_seq)))
-                y.write(",".join(str(i) for i in rnafold_out) + '\n')
-                if int(rnafold_out[-1]) <= mismatches_n:
-                    z.write(",".join(str(i) for i in rnafold_out) + '\n')
-            y.close()
-            if mismatches_n:
-                z.close()
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser(usage="\n",
@@ -224,8 +273,9 @@ def parse_arguments():
     parser_all.add_argument("-t", "--transcript_fasta", help='cDNA fasta file', type=str, required=True)
     parser_all.add_argument("-o", "--output_file",  type = str, help='Output CSV file', required=True)
     parser_all.add_argument("-n", "--top_N", type = int, help='The number of sequences to write to file (based on highest score) (Optional). Default is top 10')
-    parser_all.add_argument("-l", "--length", type= int, help='Length of gRNAs to design (Optional). Default is 22')
+    parser_all.add_argument("-l", "--length", type= int, help='Length of gRNAs to design (Optional). Default is 23')
     parser_all.add_argument("-m", "--mismatches", type=int, help='The number of mismatches to report in a seperate file. Default is 5')
+    parser_all.add_argument("-p", "--num_processes", type=int,default=1, help='The number of processes/threads to use. Default is 1')
 
     parser_all._optionals.title = "Arguments"
 
@@ -242,7 +292,7 @@ def parse_arguments():
     parser_mismatch = subparsers.add_parser("mismatch", help="'mismatch' specific arguments")
     parser_mismatch.add_argument("-g", "--grna_file",type=str, help='Fasta file with sequences (recommended fasta file)', required=True)
     parser_mismatch.add_argument("-t", "--transcript_fasta",type=str, help='cDNA fasta file', required=True)
-
+    parser_mismatch.add_argument("-p", "--num_processes", type=int,default=1, help='The number of processes/threads to use. Default is 1')
     parser_mismatch.add_argument("-m", "--mismatches", type=int, help='The number of mismatches to report in a seperate file. Default is 5')
     parser_mismatch._optionals.title = "Arguments"
     parser._optionals.title = "Optional Arguments"
@@ -260,10 +310,12 @@ if __name__ == "__main__":
 
         run_RNAplfold_top(args.fasta, top_N, length).to_csv(os.path.join(grna_dir, args.output_file), sep=",", header=True, index=False)
         delete_files_with_endings(["_lunp", "_dp.ps"])
+
     elif args.subcommand == "mismatch":
         all_align_dir, mismatches_dir = mkdir(args.subcommand)
 
         run_mismatch(args)
+
     elif (args.subcommand == "all") or (args.subcommand == None):
         grna_dir, all_align_dir, mismatches_dir = mkdir(args.subcommand)
         top_N = int(args.top_N) if args.top_N else 10
@@ -273,14 +325,4 @@ if __name__ == "__main__":
         delete_files_with_endings(["_lunp", "_dp.ps"])
         run_mismatch(args, os.path.join(grna_dir, args.output_file))
 
-
-    # else:
-    #     print("Invalid subcommand. Use 'foo' or 'bar'.")
-    # #mode = args.sub
-    # if mode == "design":
-    #     top_N = int(args.top_N) if args.top_N else None
-    #     length = int(args.length) if args.length else 22
-    #     grna_dir = mkdir()
-
-    #     run_RNAplfold_top(args.fasta, top_N, length).to_csv(os.path.join(grna_dir, args.output_file), sep=",", header=True, index=False)
 
