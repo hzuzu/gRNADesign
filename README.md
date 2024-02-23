@@ -151,38 +151,35 @@ The results/grna will have one file with the name used while running the pipelin
 
 The columns of gRNA.csv are described below:
 
-*gRNA_name : The name here will be the sequnce id of the input sequences followed by the start and the end cordinate where this gRNA is from on the seqenuce.
-*seq_23nt : The lenght of the gRNA. Default is 23, unless user defined.
-*Gene|Transcript : The name here will be the sequnce id of the input sequences.
-*Seq_start : The start coordinate where this gRNA is from on the seqenuce.
-*Seq_end : The end coordinate where this gRNA is from on the seqenuce.
-*Average_score : Average is the score defined in the design module
-*G_Percentage : Percenate of Base 'G' in the gRNA
-*C_Percentage : Percenate of Base 'C' in the gRNA
-*A_Percentage : Percenate of Base 'A' in the gRNA
-*T_Percentage : Percenate of Base 'T' in the gRNA
+* gRNA_name : The name here will be the sequnce id of the input sequences followed by the start and the end cordinate where this gRNA is from on the seqenuce.
+* seq_23nt : The lenght of the gRNA. Default is 23, unless user defined.
+* Gene|Transcript : The name here will be the sequnce id of the input sequences.
+* Seq_start : The start coordinate where this gRNA is from on the seqenuce.
+* Seq_end : The end coordinate where this gRNA is from on the seqenuce.
+* Average_score : Average is the score defined in the design module
+* G_Percentage : Percenate of Base 'G' in the gRNA
+* C_Percentage : Percenate of Base 'C' in the gRNA
+* A_Percentage : Percenate of Base 'A' in the gRNA
+* T_Percentage : Percenate of Base 'T' in the gRNA
 
 
 The results/all_alignments and results/mismatches will have one file for each gRNA. results/all_alignments will have all the alignments of gRNA mapping to each gene/transcript from the TRANSCRIPT_FASTA file and  results/mismatches will have the same alignments filtered for gene/trasncript with total mismatch of specified mismatches. 
 
-
-The columns of all_alignments.csv (eg all_alignments_gRNA_1.csv) are described below:
-Sequence ID : The ID of sequence from the input TRANSCRIPT_FASTA file
-gRNA_align_start : Alignment start of the gRNA on the gene/transcript
-gRNA_align_end : Alignment end of the gRNA on the gene/transcript
-seq_align_start : Alignment start of the gene/transcript
-seq_align_end : Alignment end of the gene/transcript
-identity : Number of aligned bases inlcudin gaps in gRNA
-total_aligned_len : Number of bases which aligned between the two sequences
-missing_start : The number of unaligned bases at the start of gRNA 
-missing_end : The number of unaligned bases at the end of gRNA 
-added_aligned_len : This is the total_aligned_len + missing_start + missing_end (Which represnts a hypothetical aligned + unaligned length)
-gRNA_gaps : The number of gaps in the gRNA for this alignment
-seq_gaps : The number of gaps in the gene/transcript for this alignment
-total_mismatches : This is added_aligned_len - identity ( Which is the difference of aligned bases and the total alignment including the unaligned length)
+* The columns of all_alignments.csv (eg all_alignments_gRNA_1.csv) are described below:
+* Sequence ID : The ID of sequence from the input TRANSCRIPT_FASTA file
+* gRNA_align_start : Alignment start of the gRNA on the gene/transcript
+* gRNA_align_end : Alignment end of the gRNA on the gene/transcript
+* seq_align_start : Alignment start of the gene/transcript
+* seq_align_end : Alignment end of the gene/transcript
+* identity : Number of aligned bases inlcudin gaps in gRNA
+* total_aligned_len : Number of bases which aligned between the two sequences
+* missing_start : The number of unaligned bases at the start of gRNA 
+* missing_end : The number of unaligned bases at the end of gRNA 
+* added_aligned_len : This is the total_aligned_len + missing_start + missing_end (Which represnts a hypothetical aligned + unaligned length)
+* gRNA_gaps : The number of gaps in the gRNA for this alignment
+* seq_gaps : The number of gaps in the gene/transcript for this alignment
+* total_mismatches : This is added_aligned_len - identity ( Which is the difference of aligned bases and the total alignment including the unaligned length)
 
 Note: Please feel free to compute your our own mismatch score from files in results/all_alignments if needed.
-
-
 
 For more information contact Huzaifa hassan at hhassan@stowers.org
