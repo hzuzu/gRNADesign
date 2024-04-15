@@ -1,7 +1,7 @@
 
 
-# gRNADesign: A pipeline to design gRNA and calculate RNA fold scores, mismatches to cDNA's
-It is specifically designed for Bazzini Lab.
+# gRNADesign: A pipeline to design gRNA and calculate RNA fold scores and mismatches to cDNA's
+It is specifically designed for Bazzini Lab at Stowers Institute for Medical Research.
 
 ## Information
 
