@@ -207,5 +207,3 @@ options:
 
 ```
 
-
-For more information contact Huzaifa hassan at hhassan@stowers.org
