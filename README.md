@@ -7,7 +7,7 @@ It is specifically designed for Bazzini Lab at Stowers Institute for Medical Res
 
 There are 3 submodules in this pipeline
 * design
-* msimatch
+* mismatch
 * all
 
 ### design module
@@ -19,14 +19,30 @@ The design module designs gRNAs from an input fasta file. This modules runs RNAp
 3. Compute the mean score of all columns (The number of columns will be equal to length of the gRNA) in each row. This gives one value for each bp of a gene.
 4. For each sequence from step 2, take the scores from step 3 (The number of scores should be equal to the length of the gRNA sequence). Compute a mean of these scores to give one single score for each gRNA
 
+**Input file**
+
+Fasta File: The input file is a FASTA file containing sequences for which gRNAs should be designed.
+
 ### mismatch module
 
 The mismatch module is used to compute the number of mismatches for gRNAs against the transcriptome.
 The module runs water pairwise aligner from Emboss.
 
+**Input file**
+The input files are:
+* gRNA File: The gRNA file can be provided in one of the following formats:
+  * FASTA format: The file should end with `.fa` or `.fasta`, with the FASTA headers representing the gRNA names.
+  * Tab-delimited format: The file should end with `.txt`, with the first column containing the gRNA names and the second column containing the gRNA sequences. The file must include headers.
+* Transcript/cDNA FASTA File: A FASTA file containing transcript or cDNA sequences.
+
 ### all module
 
 The 'all' module runs both the 'design' and 'mismatch' module
+
+**Input file**
+The input files are:
+* Fasta File: The input file is a FASTA file containing sequences for which gRNAs should be designed.
+* Transcript/cDNA FASTA File: A FASTA file containing transcript or cDNA sequences.
 
 
 ## Getting started
