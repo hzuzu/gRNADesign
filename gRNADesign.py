@@ -10,6 +10,8 @@
 
 # 02/23
 # Added parallelization, optimized the code and added more documentation
+#11/21
+# optimized the code for mismatch analysis.
 #####################################
 
 #!/usr/bin/env python3
@@ -27,6 +29,8 @@ import sys
 import os
 import glob
 import multiprocessing as mp
+import shutil
+from collections import defaultdict
 
 
 # Create directories
@@ -101,82 +105,124 @@ def run_RNAplfold_top(seq_fasta, top_N=None, len_grna=23):
 
 
 
-# Create a water commandline object
-def water_cmdline(g_fasta, tran_fasta):
+# Create a water commandline object and run the command
+def water_cmdline(g_fasta, tran_fasta_fh):
     """
-    run water commandline
+    Run the EMBOSS water commandline for sequence alignment.
+    
+    Parameters:
+        g_fasta (str): gRNA sequence as a string.
+        tran_fasta_fh (str): File path to the FASTA file for the cDNA sequence.
+    
+    Returns:
+        str: The stdout of the water command containing the alignment result.
+    
+    Raises:
+        FileNotFoundError: If the water tool is not installed or not in PATH.
+        CalledProcessError: If the water command fails.
     """
-    water_cmd = WaterCommandline(gapopen=10, gapextend=0.5)
-    water_cmd.asequence = "asis:" + g_fasta
-    water_cmd.bsequence = "asis:" + tran_fasta
-    water_cmd.outfile = "stdout"  # Redirect the output to stdout
+    # Check if the water tool is installed
+    if shutil.which("water") is None:
+        raise FileNotFoundError("The 'water' tool from EMBOSS is not installed or not in the PATH.")
 
-    run_water = sb.run(str(water_cmd), 
-                       stdout=sb.PIPE,
-                       stderr=sb.PIPE,
-                       text=True, 
-                       shell=True)
+    try:
+        # Initialize the water command
+        water_cmd = WaterCommandline(gapopen=10, gapextend=0.5)
+        water_cmd.asequence = "asis:" + g_fasta  # Query sequence directly
+        water_cmd.bsequence = tran_fasta_fh      # Subject sequence as a file
+        water_cmd.outfile = "stdout"            # Redirect output to stdout
 
-    return run_water.stdout
+        # Run the command using subprocess
+        result = sb.run(
+            str(water_cmd),
+            stdout=sb.PIPE,
+            stderr=sb.PIPE,
+            text=True,
+            shell=True,
+            check=True  # Raises CalledProcessError for non-zero exit codes
+        )
+
+        return result.stdout  # Return the alignment result
+
+    except sb.CalledProcessError as e:
+        print(f"Error running water command: {e.stderr}")
+        raise
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        raise
 
 
 #parse the output of water
-def parse_water_output(stdout_output, len_grna=23):
-    """
-    Parse the output of water and return the alignment length, identity, mismatch, and gap.
-    """
-    # Ensure len_grna is an integer
-    if not isinstance(len_grna, int):
-        len_grna = int(len_grna)
 
-    lines = stdout_output.split('\n')
+def parse_water_align(text, g_name, len_grna = 23) -> dict:
+    seq1_name = g_name
+    if "# 2:" in text[3]:
+        seq2_name = text[3].strip().rsplit(' ', 1)[-1]
+    if "# Length:" in text[8]:
+        length = int(text[8].strip().rsplit(' ', 1)[-1])
+    if "# Identity:" in text[9]:
+        identity_perc = text[9].strip().rsplit(' ', 1)[-1].replace('(', '').replace(')', '').replace('%', '')
+        identity = int(text[9].strip().rsplit(' ', 2)[-2].split('/')[0])
+    if "# Similarity:" in text[10]:
+        similarity_perc = text[10].strip().rsplit(' ', 1)[-1].replace('(', '').replace(')', '').replace('%', '')
+        similarity = int(text[10].strip().rsplit(' ', 2)[-2].split('/')[0])
+    if "# Gaps:" in text[11]:
+        gRNA_gaps = text[11].strip().split('/')[0].strip().split(' ')[-1]
 
-    # Parse aligned identity, gRNA gaps, and total aligned length
-    line_1 = lines[23].strip().split('/')
-    identity = int(line_1[0].strip().split(' ')[-1]) # aligned identity
-    gRNA_gaps = int(lines[25].strip().split('/')[0].strip().split(' ')[-1])
-    total_aligned_len = int(line_1[1].strip().split(' ')[0]) # total length of aligned sequence including gaps and mismatches
+    seq_gaps = text[19].count('-')
+    seq1_start = int([item for item in text[17].strip().split(' ') if item][1])
+    seq2_start = int([item for item in text[19].strip().split(' ') if item][1])
+    seq1_end = int([item for item in text[17].strip().split(' ') if item][-1])
+    seq2_end = int([item for item in text[19].strip().split(' ') if item][-1])
 
-    # Parse gRNA alignment start and end
-    line_2 = lines[31].strip().split(' ')
-    line_2 = list(filter(None, line_2))
-    gRNA_align_start = int(line_2[1]) # sequence start of query
-    gRNA_align_end = int(line_2[-1]) # sequence end of query
-
-    # Parse sequence alignment start and end
-    line_3 = lines[33].strip().split(' ')
-    line_3 = list(filter(None, line_3))
-    seq_align_start = int(line_3[1]) # sequence start of query
-    seq_align_end = int(line_3[-1]) # sequence end of query
-    seq_gaps = line_3[3].count('-')
 
     # Calculate additional gaps at start and end of sequence
-    add_start = gRNA_align_start - 1 # gap in start of seq
-    add_end = len_grna - gRNA_align_end # gap in end of seq
+    add_start = seq1_start - 1 # gap in start of seq
+    add_end = len_grna - seq1_end # gap in end of seq
     total_add = add_start + add_end # total gap at start and end
-    added_aligned_len = total_aligned_len + total_add # Add the total length of aligned sequence + total gaps at start and end 
+    added_aligned_len = length + total_add # Add the total length of aligned sequence + total gaps at start and end 
 
     # Calculate mismatch length
     mismatch_len = added_aligned_len - identity
 
-    return {
-        'gRNA_align_start' : gRNA_align_start,
-        'gRNA_align_end' : gRNA_align_end,
-        'seq_align_start': seq_align_start,
-        'seq_align_end': seq_align_end,
-        'identity' : identity,
-        'total_aligned_len' : total_aligned_len,
-        'missing_start' : add_start,
-        'missing_end' : add_end,
-        'added_aligned_len' : added_aligned_len,
-        'gRNA_gaps': gRNA_gaps,
-        'seq_gaps': seq_gaps,
-        'total_mismatches' : mismatch_len
-    }
+    return {'gRNA_name': seq1_name,
+                    'seq2_name': seq2_name,
+                    'aligned_length': length,
+                    'identity': identity,
+                    'identity_perc': identity_perc,
+                    'similarity': similarity,
+                    'similarity_perc': similarity_perc,
+                    'gRNA_align_start': seq1_start,
+                    'gRNA_align_end': seq1_end,
+                    'seq_align_start': seq2_start,
+                    'seq_align_end': seq2_end,
+                    'gRNA_gaps': gRNA_gaps,
+                    'seq_gaps': seq_gaps,
+                    'total_mismatches' : mismatch_len
+                    }
 
-def run_water_parallel(args):
-    seq_name, seq_seq, g_seq = args
-    return (seq_name, parse_water_output(water_cmdline(g_seq, seq_seq), len(g_seq)))    
+def water_out_parse(waterlines,g_name, len_grna = 23):
+    waterlines = waterlines.split('\n')
+    waterlines = waterlines[13:]
+    waterlines = waterlines[:-1]
+    seq1_name = "gRNA_1"
+    chunks = defaultdict(list)
+    count = 1
+    for i in waterlines:
+        if i.strip() == "#=======================================":
+            chunks[count].append(i)
+            count += 1
+        else:
+            chunks[count].append(i)
+    chunk_dict = {}
+    for i in range(2, len(chunks)+1, 2):
+        chunk_dict[str(i) + "|" + str(i+1)] = parse_water_align(chunks[i]+ chunks[i+1], g_name,len_grna)
+    return pd.DataFrame.from_dict(chunk_dict).T
+
+
+def run_water_parallel(args) -> dict:
+    g_name, g_seq, transSeq_fh = args
+    return {g_name: water_out_parse(water_cmdline(g_seq, transSeq_fh), g_name,len_grna = len(g_seq))}
 
 def read_delimited_file(file_path, sep = "\t",header = 0):
     """
@@ -209,7 +255,7 @@ def run_mismatch(args, grnafile = None, num_processes = 1):
             grnafile = grnafile
         else:
             grnafile = args.grna_file
-        
+
         # Number of mismatches to report
         mismatches_n = int(args.mismatches) if args.mismatches else int(5)
 
@@ -223,40 +269,38 @@ def run_mismatch(args, grnafile = None, num_processes = 1):
         else:
             print("ERROR: Unsupported file format for gRNA file: " + grnafile)
             exit(1)
-        trans_dict = read_fasta_file(args.transcript_fasta)
-        
 
-        for g_name, g_seq in grna_dict.items():
-            #outfile_all = f"all_alignments_{g_name}.csv"
+        # Read transcript fasta file
+        transSeq_fh = args.transcript_fasta
 
-            # gRNA_seq = "AATCGACCGA"
+        # run parallely for each gRNA
+        if 'num_processes' not in locals() or num_processes is None:        # Ensure the number of processes is defined
+            num_processes = 4  # Default to 4 processes if not defined
+        else :
+            num_processes = int(args.num_processes)
 
-            # Specify the number of processes
-            num_processes = num_processes
-
+        try:
             # Create a pool of processes
-            pool = mp.Pool(processes=num_processes)
+            with mp.Pool(processes=num_processes) as pool:
+                # Map the function to the list of arguments and obtain results
+                results = pool.map(
+                    run_water_parallel,
+                    [(g_name,g_seq.replace('U', 'T'),transSeq_fh) for g_name, g_seq in grna_dict.items()]
+                )
 
-            # Map the function to the list of arguments and obtain results
-            results = pool.map(run_water_parallel, [(seq_name, seq_seq, g_seq) for seq_name, seq_seq in trans_dict.items()])
+        except Exception as e:
+            print(f"An error occurred during parallel processing: {e}")
+            raise
 
-            # Close the pool to release resources
-            pool.close()
-            pool.join()
+        for result in results:
+            for g_name, result_df in result.items():
+                outfile_all = os.path.join(all_align_dir,f"all_alignments_{g_name}.csv")
+                result_df.to_csv(outfile_all, index=False)
 
-            # Convert the list of results to a dictionary
-            grna_align = {seq_name: result for seq_name, result in results}
-            df_grna_align = pd.DataFrame.from_dict(grna_align, orient="index").reset_index().rename(columns={"index": "Sequence ID"})
-
-            # save file
-            outfile_all = os.path.join(all_align_dir,f"all_alignments_{g_name}.csv")
-            df_grna_align.to_csv(outfile_all, index=False)
-
-            if mismatches_n:
-                outfile_mismatches = os.path.join(mismatches_dir,f"mismatches_{mismatches_n}_alignments_{g_name}.csv")
-                df_grna_align_mismatch = df_grna_align[df_grna_align['total_mismatches'] <=mismatches_n]
-                df_grna_align_mismatch.to_csv(outfile_mismatches, index=False)
-
+                if mismatches_n:
+                    outfile_mismatches = os.path.join(mismatches_dir,f"mismatches_{mismatches_n}_alignments_{g_name}.csv")
+                    df_grna_align_mismatch = result_df[result_df['total_mismatches'] <=mismatches_n]
+                    df_grna_align_mismatch.to_csv(outfile_mismatches, index=False)
 
 
 def parse_arguments():
@@ -324,5 +368,3 @@ if __name__ == "__main__":
         run_RNAplfold_top(args.fasta, top_N, length).to_csv(os.path.join(grna_dir, args.output_file), sep=",", header=True, index=False)
         delete_files_with_endings(["_lunp", "_dp.ps"])
         run_mismatch(args, os.path.join(grna_dir, args.output_file))
-
-
