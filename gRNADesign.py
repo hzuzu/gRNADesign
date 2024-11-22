@@ -342,10 +342,14 @@ def parse_arguments():
     parser._optionals.title = "Optional Arguments"
 
     # Parse the command-line arguments
-    return parser.parse_args()
+    return parser, parser.parse_args()
 
 if __name__ == "__main__":
-    args = parse_arguments()
+    parser, args = parse_arguments()
+
+    if len(sys.argv) == 1: 
+        parser.print_help(sys.stderr)
+        sys.exit(1)
 
     if args.subcommand == "design":
         top_N = int(args.top_N) if args.top_N else None
