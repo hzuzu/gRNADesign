@@ -12,10 +12,19 @@ import sys
 
 import pandas as pd
 
+
+def _resolve_group_column(df):
+    """Return the gene/transcript column supported by the current CSV format."""
+    for column in ["Gene|Transcript", "Gene|Longest_transcript"]:
+        if column in df.columns:
+            return column
+    raise ValueError("Input CSV must contain either 'Gene|Transcript' or the legacy 'Gene|Longest_transcript' column.")
+
+
 def select_gRNA(df, dist_grna=10, top_n=10):
     """
-    Selects the top n rows based on 'Average_score' within each group of
-    'Gene|Longest_transcript' column, while ensuring that the gRNAs are at least dist_grna apart.
+    Selects the top n rows based on 'Average_score' within each gene group,
+    while ensuring that the gRNAs are at least dist_grna apart.
     """
     df_sorted = df.sort_values(by="Average_score", ascending=False)
     
@@ -55,8 +64,10 @@ def select_gRNA_per_gene(df_fh, dist_grna=10, top_n=10):
     """
     # read the input DataFrame
     df = pd.read_csv(df_fh, sep=',', header=0)
-    # Group the DataFrame by 'Gene|Longest_transcript' and apply the select_gRNA function to each group
-    grouped_df = df.groupby('Gene|Longest_transcript').apply(select_gRNA, dist_grna=dist_grna, top_n=top_n)
+    group_col = _resolve_group_column(df)
+    # Group the DataFrame by the supported gene/transcript column and apply the
+    # select_gRNA function to each group.
+    grouped_df = df.groupby(group_col).apply(select_gRNA, dist_grna=dist_grna, top_n=top_n)
 
     # Reset the index of the resulting DataFrame
     grouped_df.reset_index(drop=True, inplace=True)
@@ -73,7 +84,7 @@ def args():
     """
     import argparse
 
-    parser = argparse.ArgumentParser(description='Selects the top n rows based on \'Average_score\' within each group of \'Gene|Longest_transcript\' column, while ensuring that the \'Seq_start\' values are at least dist_grna apart.',
+    parser = argparse.ArgumentParser(description='Selects the top n rows based on \'Average_score\' within each gene group, while ensuring that the \'Seq_start\' values are at least dist_grna apart. The input CSV can use either \'Gene|Transcript\' or the legacy \'Gene|Longest_transcript\' column name.',
                                      usage=f'{sys.argv[0]} -f <df_fh> -d <dist_grna> -n <top_n>',
                                      epilog='Contact Huzaifa Hassan at hhassan@stowers.org for help or questions.')
     parser.add_argument('-f', '--df_fh', type=str, help='File path of the input CSV file.')

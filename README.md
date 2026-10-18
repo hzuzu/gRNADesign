@@ -207,7 +207,9 @@ Note: Please feel free to compute your our own mismatch score from files in resu
 **Helper Scripts**
 1. Filter gRNAs based on the distance between the gRNAs
 
-This script is used to select gRNAs based on the distance between the gRNAs. The script takes the gRNA.csv file as input and the distance between the gRNAs. The script will select the gRNAs based on the distance and write the selected gRNAs to a new file.
+This script is used to select gRNAs based on the distance between candidates in the same gene/transcript. The script takes the gRNA CSV produced by the design/all pipeline as input, filters to candidates that are at least `dist_grna` bases apart, and writes the selected gRNAs to a new file.
+
+The helper accepts both the current `Gene|Transcript` column name and the legacy `Gene|Longest_transcript` column name so it matches the pipeline output and older notebooks.
 
 Usage:
 
@@ -215,8 +217,9 @@ Usage:
 python select_gRNA_dist.py -h
 usage: select_gRNA_dist.py -f <df_fh> -d <dist_grna> -n <top_n>
 
-Selects the top n rows based on 'Average_score' within each group of 'Gene|Longest_transcript' column, while ensuring that the
-gRNAs are at least dist_grna apart.
+Selects the top n rows based on 'Average_score' within each gene group, while ensuring that the
+gRNAs are at least dist_grna apart. The input CSV can use either 'Gene|Transcript'
+or the legacy 'Gene|Longest_transcript' column name.
 
 options:
   -h, --help            show this help message and exit
