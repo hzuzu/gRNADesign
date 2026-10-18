@@ -19,6 +19,23 @@ The design module designs gRNAs from an input fasta file. This modules runs RNAp
 3. Compute the mean score of all columns (The number of columns will be equal to length of the gRNA) in each row. This gives one value for each bp of a gene.
 4. For each sequence from step 2, take the scores from step 3 (The number of scores should be equal to the length of the gRNA sequence). Compute a mean of these scores to give one single score for each gRNA
 
+#### Folding mode: `--fold_mode`
+
+The design module can fold the input two ways. This changes which sites score highest, so pick deliberately.
+
+| `--fold_mode` | Tool | Base pairs allowed | Use when |
+|---|---|---|---|
+| `local` (default) | `RNAplfold -W <winsize>` | only within the window (default 70 nt) | you want the original pipeline behaviour |
+| `global` | `RNAfold -p` over the whole sequence | any span, including long-range | you want to reproduce the ViennaRNA RNAfold **web server** |
+
+**`global` reproduces the web server exactly.** The RNAfold web server states: *"For unpaired regions the color denotes the probability of being unpaired."* `global` mode scores each window by that same per-base unpaired probability. Verified on cth1 (1553 nt): all 1532 windows identical to the web-server quantity, max difference 0.000000, Spearman 1.000.
+
+**The two modes disagree substantially on long mRNAs.** On cth1 they share **0 of their top 10** sites (Spearman 0.31), because a 70 nt window cannot see the long-range pairs a global fold forms. Neither is automatically correct: global folding assumes long-range pairs actually form, while local folding reflects the fact that long mRNAs fold co-transcriptionally and are covered by ribosomes and RBPs. Only knockdown data can settle which predicts activity better.
+
+`--winsize` sets the RNAplfold window in `local` mode (default 70, which is RNAplfold's own default). It is ignored in `global` mode.
+
+Note: `RNAfold -p` scales roughly as O(n^3) in time and O(n^2) in memory, so `global` mode is slow on very long transcripts; a warning is printed above 5000 nt. (`RNAplfold` with a very large `-W` is not a substitute — it overflows and silently produces no output on longer sequences.)
+
 **Input file**
 
 Fasta File: The input file is a FASTA file containing sequences for which gRNAs should be designed.
@@ -26,13 +43,21 @@ Fasta File: The input file is a FASTA file containing sequences for which gRNAs 
 ### mismatch module
 
 The mismatch module is used to compute the number of mismatches for gRNAs against the transcriptome.
-The module runs water pairwise aligner from Emboss.
+The module runs the water pairwise aligner (Smith-Waterman local alignment) from EMBOSS.
+
+How it works:
+1. Each gRNA (U is converted to T) is aligned with one `water` run against **every** transcript in the transcript FASTA (`-p` runs several gRNAs in parallel).
+2. `water` reports only the **single best local alignment per transcript**, so a second site in the same transcript is not reported.
+3. Only the **same strand** as the transcript FASTA is searched (no reverse complement).
+4. The intended target transcript is not excluded; it appears in the output with 0 mismatches.
+5. Transcript IDs containing `|` are aligned as `_` internally (EMBOSS would otherwise rename them `EMBOSS_001`, ...) and restored in the output. Zero-length records are skipped by `water` and reported as a warning.
 
 **Input file**
 The input files are:
 * gRNA File: The gRNA file can be provided in one of the following formats:
   * FASTA format: The file should end with `.fa` or `.fasta`, with the FASTA headers representing the gRNA names.
   * Tab-delimited format: The file should end with `.txt`, with the first column containing the gRNA names and the second column containing the gRNA sequences. The file must include headers.
+  * Comma-delimited format: The file should end with `.csv`, same layout as `.txt` (name, sequence; with headers). The `gRNA.csv` written by the design module can be used directly.
 * Transcript/cDNA FASTA File: A FASTA file containing transcript or cDNA sequences.
 
 ### all module
@@ -128,17 +153,55 @@ Arguments:
   -o OUTPUT_FILE, --output_file OUTPUT_FILE
                         Output CSV file
   -n TOP_N, --top_N TOP_N
-                        The number of sequences to write to file (based on
-                        highest score) (Optional). Default is top 10
+                        Top N gRNAs by score per sequence (default: 10)
   -l LENGTH, --length LENGTH
-                        Length of gRNAs to design (Optional). Default is 23
+                        gRNA length in bp (default: 22)
   -m MISMATCHES, --mismatches MISMATCHES
-                        The number of mismatches to report in a separate file.
-                        Default is 5
+                        Mismatch threshold for filtering (default: 5)
   -p NUM_PROCESSES, --num_processes NUM_PROCESSES
-                        The number of processes/threads to use. Default is 1
+                        Number of parallel processes (default: 1)
+  --fold_mode {local,global}
+                        local = RNAplfold sliding window (default); global =
+                        RNAfold whole-sequence fold, matches the RNAfold web
+                        server
+  --winsize WINSIZE     RNAplfold window size, local mode only (default: 70)
+
+
+python gRNADesign.py design --help
+
+usage:  design [-h] -f FASTA -o OUTPUT_FILE [-n TOP_N] [-l LENGTH]
+
+Arguments:
+  -h, --help            show this help message and exit
+  -f FASTA, --fasta FASTA
+                        Fasta file with sequences to design gRNA
+  -o OUTPUT_FILE, --output_file OUTPUT_FILE
+                        Output CSV file
+  -n TOP_N, --top_N TOP_N
+                        Top N gRNAs by score per sequence (default: all windows)
+  -l LENGTH, --length LENGTH
+                        gRNA length in bp (default: 22)
+
+
+python gRNADesign.py mismatch --help
+
+usage:  mismatch [-h] -g GRNA_FILE -t TRANSCRIPT_FASTA [-p NUM_PROCESSES]
+                 [-m MISMATCHES]
+
+Arguments:
+  -h, --help            show this help message and exit
+  -g GRNA_FILE, --grna_file GRNA_FILE
+                        gRNA file (.fa, .fasta, .txt tab-delimited, or .csv)
+  -t TRANSCRIPT_FASTA, --transcript_fasta TRANSCRIPT_FASTA
+                        cDNA fasta file
+  -p NUM_PROCESSES, --num_processes NUM_PROCESSES
+                        Number of parallel processes (default: 1)
+  -m MISMATCHES, --mismatches MISMATCHES
+                        Mismatch threshold for filtering (default: 5)
 
 ```
+
+Note: `-m 0` keeps only perfect matches. The mismatch output files are named `mismatches_<m>_alignments_<gRNA>.csv`.
 
 These are examples for each module
 
@@ -149,6 +212,9 @@ python gRNADesign.py all -f gene.fasta -t cDNA_transcript.fasta -o gRNA.csv -n 1
 python gRNADesign.py design -f gene.fasta -o gRNA.csv -n 10 -l 22 
 
 python gRNADesign.py mismatch -g  gRNA.csv -t cDNA_transcript.fasta -m 5 -p 4
+
+# reproduce the RNAfold web server readout instead of the local sliding window
+python gRNADesign.py design -f gene.fasta -o gRNA.csv -n 10 -l 22 --fold_mode global
 
 ```
 
@@ -168,7 +234,8 @@ The results/grna will have one file with the name used while running the pipelin
 The columns of gRNA.csv are described below:
 
 * gRNA_name : The name here will be the sequence id of the input sequences followed by the start and the end coordinate where this gRNA is from on the sequence.
-* seq_23nt : The length of the gRNA. Default is 23, unless user defined.
+* seq_22nt : The target-site sequence, as it appears in the input FASTA (same strand). Default length is 22, unless user defined.
+* seq_22nt_revcomp : The reverse complement of the above. Follows the input alphabet (DNA stays T, RNA stays U). Use whichever strand your system requires.
 * Gene|Transcript : The name here will be the sequence id of the input sequences
 * Seq_start : The start coordinate where this gRNA is from on the sequence
 * Seq_end : The end coordinate where this gRNA is from on the sequence
@@ -178,25 +245,31 @@ The columns of gRNA.csv are described below:
 * A_Percentage : Percentage of Base 'A' in the gRNA
 * T_Percentage : Percentage of Base 'T' in the gRNA
 
+Note on base composition: these are computed on `seq_22nt` (the target site). For the reverse complement they swap, i.e. G%<->C% and A%<->T%.
+
+Note on column order: the mismatch module reads a gRNA file by column position (column 0 = name, column 1 = sequence). `seq_22nt` is therefore kept at column 1 so that `gRNA.csv` can be passed straight to the mismatch module, which aligns the target-site strand. Do not reorder the first two columns.
+
 
 The results/all_alignments and results/mismatches will have one file for each gRNA. results/all_alignments will have all the alignments of gRNA mapping to each gene/transcript from the TRANSCRIPT_FASTA file and  results/mismatches will have the same alignments filtered for gene/transcript with total mismatch of specified mismatches. 
 
-* The columns of all_alignments.csv (eg all_alignments_gRNA_1.csv) are described below:
-* Sequence ID : The ID of sequence from the input TRANSCRIPT_FASTA file
-* gRNA_align_start : Alignment start of the gRNA on the gene/transcript
-* gRNA_align_end : Alignment end of the gRNA on the gene/transcript
-* seq_align_start : Alignment start of the gene/transcript
-* seq_align_end : Alignment end of the gene/transcript
-* identity : Number of aligned bases including gaps in gRNA
-* total_aligned_len : Number of bases which aligned between the two sequences
-* missing_start : The number of unaligned bases at the start of gRNA 
-* missing_end : The number of unaligned bases at the end of gRNA 
-* added_aligned_len : This is the total_aligned_len + missing_start + missing_end (Which represents a hypothetical aligned + unaligned length)
-* gRNA_gaps : The number of gaps in the gRNA for this alignment
-* seq_gaps : The number of gaps in the gene/transcript for this alignment
-* total_mismatches : This is added_aligned_len - identity ( Which is the difference of aligned bases and the total alignment including the unaligned length)
+The columns of the alignment files (eg all_alignments_gRNA_1.csv) are described below. There is one row per transcript (zero-length transcripts are skipped):
 
-Note: Please feel free to compute your our own mismatch score from files in results/all_alignments if needed.
+* gRNA_name : Name of the gRNA
+* seq2_name : The ID of the transcript from the input TRANSCRIPT_FASTA file
+* aligned_length : Length of the local alignment in columns (including gap columns)
+* identity : Number of identical positions in the alignment
+* identity_perc : identity / aligned_length, as a percentage (number only, no `%` sign)
+* similarity : Number of similar positions as reported by water
+* similarity_perc : similarity / aligned_length, as a percentage
+* gRNA_align_start : Alignment start on the gRNA (1-based)
+* gRNA_align_end : Alignment end on the gRNA
+* seq_align_start : Alignment start on the transcript (1-based)
+* seq_align_end : Alignment end on the transcript
+* gRNA_gaps : Number of gap positions in the gRNA row of the alignment
+* seq_gaps : Number of gap positions in the transcript row of the alignment
+* total_mismatches : aligned_length + (gRNA_align_start - 1) + (gRNA length - gRNA_align_end) - identity. This counts mismatches, gaps, and the gRNA bases left outside the local alignment at either end.
+
+Note: Please feel free to compute your own mismatch score from files in results/all_alignments if needed.
 
 
 
@@ -208,6 +281,8 @@ Note: Please feel free to compute your our own mismatch score from files in resu
 1. Filter gRNAs based on the distance between the gRNAs
 
 This script is used to select gRNAs based on the distance between the gRNAs. The script takes the gRNA.csv file as input and the distance between the gRNAs. The script will select the gRNAs based on the distance and write the selected gRNAs to a new file.
+
+Note: this script groups by a column named `Gene|Longest_transcript`, while the design module writes `Gene|Transcript`. Rename that column in gRNA.csv before running it. Run the design module without `-n` so that all windows are available for the distance selection.
 
 Usage:
 
