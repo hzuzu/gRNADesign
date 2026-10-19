@@ -1,4 +1,4 @@
-# Conda environment for gRNADesign v1.1.0
+# Conda environment for gRNADesign v1.2.0
 #
 #   mamba env create -f gRNADesign.yml      # or: conda env create -f gRNADesign.yml
 #   conda activate gRNADesign

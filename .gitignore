@@ -6,6 +6,11 @@ results/
 __pycache__/
 *.py[cod]
 
+# Packaging build artefacts (pip install -e .)
+*.egg-info/
+build/
+dist/
+
 # ViennaRNA / EMBOSS scratch files
 *_lunp
 *_dp.ps

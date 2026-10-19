@@ -16,6 +16,10 @@
 # see gRNADesign.yml. Run 'gRNADesign.py -h' for usage.
 #
 # ---------------------------------------------------------------------------------
+# v1.2.0  Optional packaging: `pip install --no-deps -e .` installs the scripts as
+#         the commands `grnadesign` and `grnadesign-dist`. Running
+#         `python gRNADesign.py ...` is unchanged. No change to any output.
+#
 # v1.1.0  First tagged release. Runs on Python 3.12 with pandas 2.x and Biopython 1.85+
 #         (verified to give identical output on the previous 3.7 / pandas 1.3 stack).
 #
@@ -70,7 +74,7 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 # Smith-Waterman gap penalties passed to EMBOSS water (EDNAFULL matrix: +5 match / -4
 # mismatch). Verified not to change the ranking of top hits against (10, 5) and (16, 4).
@@ -823,7 +827,8 @@ def parse_arguments() -> tuple:
     return parser, parser.parse_args()
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Entry point for the `grnadesign` command and for `python gRNADesign.py`."""
     parser, args = parse_arguments()
 
     # Covers both "no arguments" and "options but no subcommand"; without this the 'all'
@@ -868,3 +873,7 @@ if __name__ == "__main__":
             all_align_dir=all_align_dir,
             mismatches_dir=mismatches_dir
         )
+
+
+if __name__ == "__main__":
+    main()

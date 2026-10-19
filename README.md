@@ -1,8 +1,8 @@
 # gRNADesign: A pipeline to design gRNA and calculate RNA fold scores and mismatches to cDNA's
 
-**v1.1.0** · Python 3.12 · It is specifically designed for Bazzini Lab at Stowers Institute for Medical Research.
+**v1.2.0** · Python 3.12 · It is specifically designed for Bazzini Lab at Stowers Institute for Medical Research.
 
-> **Note on v1.1.0:** parts of this release — the Python 3.12 / pandas 2.x migration,
+> **Note on v1.1.0 onward:** parts of these releases — the Python 3.12 / pandas 2.x migration,
 > bug fixes, the conda environment file and this README — were updated with the help of
 > an AI coding agent (Claude Code). All changes were reviewed, and verified against a
 > regression suite that checks the design, mismatch and `all` outputs byte-for-byte
@@ -112,6 +112,35 @@ Stowers HPC, it is available as a module instead:
 ```bash
 ml emboss/6.6.0
 ```
+
+**Optional: install the commands on PATH**
+
+The pipeline runs fine as `python gRNADesign.py ...` with no installation. If you would
+rather type a command than a path, install it into the activated environment:
+
+```bash
+conda activate gRNADesign
+pip install --no-deps -e .
+```
+
+That gives two commands, which behave identically to running the scripts directly:
+
+| Command | Equivalent to |
+|---|---|
+| `grnadesign` | `python gRNADesign.py` |
+| `grnadesign-dist` | `python select_gRNA_dist.py` |
+
+```bash
+grnadesign design -f gene.fasta -o gRNA.csv -n 10
+grnadesign-dist -f results/grna/gRNA.csv -d 30
+```
+
+`--no-deps` is deliberate. ViennaRNA and EMBOSS are C programs that pip cannot install,
+so conda remains the source of truth for the environment and `gRNADesign.yml` is still
+required. Letting pip resolve the Python dependencies as well risks it replacing
+conda-managed pandas or numpy with wheels, which is the usual way a mixed conda/pip
+environment breaks. Editable (`-e`) means edits to the scripts take effect immediately
+with no reinstall.
 
 
 ## Usage

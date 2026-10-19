@@ -19,7 +19,7 @@ import pandas as pd
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 # The design module writes 'Gene|Transcript'. Older inputs used
 # 'Gene|Longest_transcript'; accept either so the column does not have to be renamed

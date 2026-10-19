@@ -1,0 +1,63 @@
+# Packaging for gRNADesign.
+#
+# This makes the two scripts available as commands on PATH:
+#
+#   grnadesign       -> gRNADesign.py
+#   grnadesign-dist  -> select_gRNA_dist.py
+#
+# Install INTO the conda environment, without letting pip touch conda's packages:
+#
+#   conda activate gRNADesign
+#   pip install --no-deps -e .
+#
+# --no-deps matters. The pipeline also needs ViennaRNA (RNAplfold, RNAfold) and EMBOSS
+# (water), which are C programs that pip cannot install - conda provides them, and
+# gRNADesign.yml remains the source of truth for the environment. Letting pip resolve
+# the Python dependencies as well risks it replacing conda-managed pandas or numpy with
+# wheels, which is the usual way a mixed conda/pip environment breaks.
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "grnadesign"
+description = "Cas13d gRNA design by RNA secondary-structure accessibility, with transcriptome-wide off-target screening"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Huzaifa Hassan", email = "hhassan@stowers.org" }]
+# Verified on 3.7.16 and 3.12.15; 3.12 is what gRNADesign.yml ships and what the
+# current release is validated against.
+requires-python = ">=3.7"
+dynamic = ["version"]
+
+# Declared for documentation and for anyone installing outside conda. With the
+# recommended `pip install --no-deps -e .` these are not resolved by pip; conda has
+# already supplied them. The bounds match gRNADesign.yml.
+dependencies = [
+    "biopython>=1.85",
+    "pandas>=2.2,<3",
+]
+
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Programming Language :: Python :: 3",
+    "Operating System :: POSIX :: Linux",
+]
+
+[project.urls]
+Repository = "https://github.com/hzuzu/gRNADesign"
+
+[project.scripts]
+grnadesign = "gRNADesign:main"
+grnadesign-dist = "select_gRNA_dist:main"
+
+[tool.setuptools]
+# Flat layout with two top-level modules: list them so setuptools does not try to
+# auto-discover packages and fail.
+py-modules = ["gRNADesign", "select_gRNA_dist"]
+
+[tool.setuptools.dynamic]
+# Single source of truth for the version: gRNADesign.__version__
+version = { attr = "gRNADesign.__version__" }
