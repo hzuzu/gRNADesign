@@ -1,0 +1,18 @@
+# Pipeline output
+results/
+.tmp_transcripts_*/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# ViennaRNA / EMBOSS scratch files
+*_lunp
+*_dp.ps
+*.ps
+
+# Editor / tooling
+.claude/
+.vscode/
+.idea/
+.DS_Store

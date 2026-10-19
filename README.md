@@ -1,7 +1,8 @@
 
 
 # gRNADesign: A pipeline to design gRNA and calculate RNA fold scores and mismatches to cDNA's
-It is specifically designed for Bazzini Lab at Stowers Institute for Medical Research.
+
+**v1.1.0** · Python 3.12 · It is specifically designed for Bazzini Lab at Stowers Institute for Medical Research.
 
 ## Information
 
@@ -32,13 +33,15 @@ The design module can fold the input two ways. This changes which sites score hi
 
 **The two modes disagree substantially on long mRNAs.** On cth1 they share **0 of their top 10** sites (Spearman 0.31), because a 70 nt window cannot see the long-range pairs a global fold forms. Neither is automatically correct: global folding assumes long-range pairs actually form, while local folding reflects the fact that long mRNAs fold co-transcriptionally and are covered by ribosomes and RBPs. Only knockdown data can settle which predicts activity better.
 
-`--winsize` sets the RNAplfold window in `local` mode (default 70, which is RNAplfold's own default). It is ignored in `global` mode.
+`--winsize` sets the RNAplfold window in `local` mode (default 70, which is RNAplfold's own default). It is ignored in `global` mode. **`--winsize` must be at least `--length`**; the run is refused otherwise. RNAplfold accepts `-u` greater than `-W` without complaining but fills the columns past the window with placeholders (`NA` and `-0`), which would be averaged into the score and silently corrupt it. This matters if you raise `--length` without raising `--winsize`.
 
 Note: `RNAfold -p` scales roughly as O(n^3) in time and O(n^2) in memory, so `global` mode is slow on very long transcripts; a warning is printed above 5000 nt. (`RNAplfold` with a very large `-W` is not a substitute — it overflows and silently produces no output on longer sequences.)
 
 **Input file**
 
 Fasta File: The input file is a FASTA file containing sequences for which gRNAs should be designed.
+
+**Sequence IDs must be unique after `|` is replaced by `_`.** RNAplfold and RNAfold name their output files after the sequence ID, so two records whose IDs collide (`dup`/`dup`, or `a|b`/`a_b`) overwrite each other's fold and every colliding record would be scored from a single structure. The run is refused with the offending pair named.
 
 ### mismatch module
 
@@ -71,36 +74,29 @@ The input files are:
 
 
 ## Getting started
-This pipeline runs in a conda environment and all the required packages are installed in the conda environment. <br/>
-However additional tools mentioned below are required for running the pipeline. Make sure you have them installed and in path.
 
-**Additional tools**
+`gRNADesign.yml` installs everything the pipeline needs, including the external tools:
+Python 3.12, Biopython, pandas, ViennaRNA (`RNAplfold`, `RNAfold`) and EMBOSS (`water`).
 
+**Create and activate the environment**
 
-The mismatch module uses water aligner from [EMBOSS](https://ssbio.readthedocs.io/en/latest/instructions/emboss.html).
-The installation instructions are mentioned in the links above. 
+```bash
+mamba env create -f gRNADesign.yml    # or: conda env create -f gRNADesign.yml
+conda activate gRNADesign
+```
 
-To run it on Stowers HPC, Emboss module is already installed and can be loaded using
+Check it worked — all three must resolve:
+
+```bash
+python -c "import Bio, pandas; print(Bio.__version__, pandas.__version__)"
+which RNAplfold RNAfold water
+```
+
+EMBOSS is now part of the environment file. If you would rather use the system build on
+Stowers HPC, it is available as a module instead:
 
 ```bash
 ml emboss/6.6.0
-```
-
-
-**Create a Conda environment using the yaml file** 
-
-```bash
-
-conda env create -f gRNADesign.yml
-
-```
-
-**Activate the gRNADesign environment** 
-
-```bash
-
-conda activate gRNADesign
-
 ```
 
 
@@ -151,7 +147,8 @@ Arguments:
   -t TRANSCRIPT_FASTA, --transcript_fasta TRANSCRIPT_FASTA
                         cDNA fasta file
   -o OUTPUT_FILE, --output_file OUTPUT_FILE
-                        Output CSV file
+                        Output CSV file; must end in '.csv' (it is re-read by
+                        the mismatch step)
   -n TOP_N, --top_N TOP_N
                         Top N gRNAs by score per sequence (default: 10)
   -l LENGTH, --length LENGTH
@@ -282,25 +279,26 @@ Note: Please feel free to compute your own mismatch score from files in results/
 
 This script is used to select gRNAs based on the distance between the gRNAs. The script takes the gRNA.csv file as input and the distance between the gRNAs. The script will select the gRNAs based on the distance and write the selected gRNAs to a new file.
 
-Note: this script groups by a column named `Gene|Longest_transcript`, while the design module writes `Gene|Transcript`. Rename that column in gRNA.csv before running it. Run the design module without `-n` so that all windows are available for the distance selection.
+Note: the script accepts either `Gene|Transcript` (what the design module writes) or the older `Gene|Longest_transcript`, so no column renaming is needed. Run the design module without `-n` so that all windows are available for the distance selection.
 
 Usage:
 
 ```bash
 python select_gRNA_dist.py -h
-usage: select_gRNA_dist.py -f <df_fh> -d <dist_grna> -n <top_n>
+usage: select_gRNA_dist.py -f <df_fh> [-d <dist_grna>] [-n <top_n>]
 
-Selects the top n rows based on 'Average_score' within each group of 'Gene|Longest_transcript' column, while ensuring that the
-gRNAs are at least dist_grna apart.
+Select the top gRNAs per gene by 'Average_score' while keeping them at least a minimum
+distance apart.
 
 options:
   -h, --help            show this help message and exit
   -f DF_FH, --df_fh DF_FH
-                        File path of the input CSV file.
+                        File path of the input gRNA CSV file.
   -d DIST_GRNA, --dist_grna DIST_GRNA
-                        Minimum distance between 'Seq_start' values of selected rows. Default is 30.
+                        Minimum distance between selected gRNAs. Default is 30.
   -n TOP_N, --top_n TOP_N
-                        Number of top rows to select within each group. Default is 10.
+                        Number of gRNAs to select within each group. Default is 10.
+  -v, --version         show program's version number and exit
 
 ```
 

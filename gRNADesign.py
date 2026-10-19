@@ -1,43 +1,60 @@
-
-#####################################
-#
-# author: Huzaifa Hassan
-# Date: 07/17/2023
-# Script to run gRNA design, parse RNAplfold output results and split each FASTA sequence into
-# sliding windows of the gRNA length (set with -l; default 22).
-# The scores are first averaged by row and then again averaged for the scores of individual bases
-# of each window. (Formula designed by Ariel Bazzini)
-#
-# run 'python gRNADesign.py -h' for details
-#
-# 02/23: Added parallelization, optimized the code and added more documentation
-# 11/21: Optimized the code for mismatch analysis
-# 08/26: Fixed off-by-one in sliding window, hardcoded line-index parsing in
-#         parse_water_align/water_out_parse, global variable scoping for output dirs,
-#         sb.call → sb.run with error handling in run_RNAplfold_top, RNAplfold temp-file isolation
-#         via tempfile.TemporaryDirectory, input validation in read_delimited_file, type hints,
-#         pathlib throughout, logging instead of print
-# 10/26: Water parse failures now raise instead of defaulting; alignment blocks paired by
-#         position (empty blocks no longer shift pairs); '-m 0' honored; empty alignment results
-#         handled; identity/similarity_perc '%' stripped (matches pre-08/26 output); missing
-#         RNAplfold output raises; FASTA path shell-quoted; unused imports removed;
-#         transcript IDs containing '|' preserved (EMBOSS renamed them to EMBOSS_###);
-#         gRNA_gaps now counts gaps in the gRNA only (was header total gaps), cross-checked
-#         against header; water stderr (e.g. skipped zero-length records) logged once;
-#         window scoring vectorized (pandas rolling mean, output identical after rounding);
-#         added seq_<L>nt_revcomp column (target site and its reverse complement both
-#         reported; target stays at column index 1 for the mismatch module);
-#         added --fold_mode {local,global} and --winsize. global uses RNAfold -p over the
-#         whole sequence and reproduces the ViennaRNA RNAfold web server readout exactly
-#         (verified 1532/1532 windows identical on cth1). local is unchanged and remains
-#         the default.
-#####################################
-
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+#####################################
+#
+# gRNADesign - Cas13d gRNA design and off-target screening
+#
+# author: Huzaifa Hassan (hhassan@stowers.org)
+# since:  07/17/2023
+#
+# Splits each input sequence into sliding windows of the gRNA length (-l, default 22)
+# and scores every window by the average probability that its bases are unpaired, so
+# that accessible target sites rank highest. Scoring formula designed by Ariel Bazzini.
+# The mismatch module then aligns each gRNA against a transcriptome with EMBOSS water
+# to find potential off-targets.
+#
+# Requires Python 3.12, ViennaRNA (RNAplfold, RNAfold) and EMBOSS (water);
+# see gRNADesign.yml. Run 'gRNADesign.py -h' for usage.
+#
+# ---------------------------------------------------------------------------------
+# v1.1.0  First tagged release. Runs on Python 3.12 with pandas 2.x and Biopython 1.85+
+#         (verified to give identical output on the previous 3.7 / pandas 1.3 stack).
+#
+#   Correctness
+#     - sliding window off-by-one fixed; window scoring vectorised (pandas rolling
+#       mean, output identical after rounding)
+#     - water parse failures raise instead of defaulting to a 0-mismatch hit;
+#       alignment blocks paired by position so an empty block cannot shift later pairs
+#     - gRNA_gaps counts gaps in the gRNA only (was the header total), cross-checked
+#     - transcript IDs containing '|' preserved (EMBOSS renamed them to EMBOSS_###)
+#     - colliding sequence IDs in the design FASTA raise: the folding tools write one
+#       file per ID, so collisions silently scored every such record from one fold
+#     - --length > --winsize raises; RNAplfold emits NA/'-0' past the window that were
+#       being averaged into the score
+#     - 'all' validates that --output_file ends in .csv and that the gRNA file is
+#       non-empty; a .fasta name silently skipped the whole mismatch step with exit 0
+#     - rolling-mean result sliced rather than .dropna(), so an interior NaN cannot
+#       shift every window coordinate
+#     - Average_score/Seq_start/Seq_end kept numeric (Average_score had been sorted
+#       as text); '-m 0' honoured; empty alignments handled
+#     - gRNAs with equal scores are now ordered by position using a stable sort. They
+#       used to come out in whatever order the sort algorithm produced, which differs
+#       between pandas versions, so the same input could yield a different top-N.
+#       OUTPUT NOTE: rows with tied scores may sit in a different order than in files
+#       produced before v1.1.0. The scores themselves are unchanged.
+#
+#   Features
+#     - --fold_mode {local,global}: global folds the whole sequence with RNAfold -p and
+#       reproduces the ViennaRNA web server readout (1532/1532 windows identical on
+#       cth1). local (RNAplfold sliding window) is unchanged and remains the default
+#     - --winsize; seq_<L>nt_revcomp column (target site and its reverse complement)
+#     - parallel alignment (-p); duplicate gRNA names warn instead of vanishing
+#
+#   Maintenance
+#     - Biopython's WaterCommandline (Bio.Application, deprecated since 1.83) replaced
+#       by a direct, non-shell water invocation; pathlib, type hints, logging throughout
+#####################################
 
 from Bio import SeqIO
-from Bio.Emboss.Applications import WaterCommandline
 import subprocess as sb
 import pandas as pd
 import argparse
@@ -52,6 +69,13 @@ from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
+
+__version__ = "1.1.0"
+
+# Smith-Waterman gap penalties passed to EMBOSS water (EDNAFULL matrix: +5 match / -4
+# mismatch). Verified not to change the ranking of top hits against (10, 5) and (16, 4).
+WATER_GAPOPEN = 10
+WATER_GAPEXTEND = 0.5
 
 # Output columns of parse_water_align (kept in one place so empty results keep the schema)
 WATER_COLUMNS = [
@@ -194,10 +218,18 @@ def run_RNAplfold_top(seq_fasta: str, top_N: int = None, len_grna: int = 23,
     Returns:
         DataFrame of scored gRNAs with base composition columns.
     """
-    if sys.version_info[0] < 3:
-        raise Exception("Please use Python 3.7 or higher.")
     if fold_mode not in ("local", "global"):
         raise ValueError(f"fold_mode must be 'local' or 'global', got {fold_mode!r}")
+
+    # RNAplfold accepts -u > -W without complaining, but the columns past the window hold
+    # placeholders ('NA' and '-0') rather than probabilities. Those were being averaged
+    # into the score, so the result looked valid and was not. Refuse the combination.
+    if fold_mode == "local" and len_grna > winsize:
+        raise ValueError(
+            f"gRNA length ({len_grna}) exceeds the RNAplfold window (winsize={winsize}). "
+            "RNAplfold emits placeholder values beyond the window, which would corrupt the "
+            f"score. Raise --winsize to at least {len_grna}, or use --fold_mode global."
+        )
 
     # Resolve to absolute path before changing working dir inside tempdir
     seq_fasta_abs = str(Path(seq_fasta).resolve())
@@ -207,6 +239,21 @@ def run_RNAplfold_top(seq_fasta: str, top_N: int = None, len_grna: int = 23,
     records = list(SeqIO.parse(seq_fasta, "fasta"))
     if not records:
         raise ValueError(f"No FASTA records found in '{seq_fasta}'.")
+
+    # RNAplfold/RNAfold write one output file per sequence, named after the ID with '|'
+    # replaced by '_'. Two records whose IDs collide after that replacement overwrite each
+    # other's output, and every colliding record is then scored from a single fold - with
+    # no error and no warning. Check before folding.
+    seen_ids = {}
+    for r in records:
+        safe = r.id.replace('|', '_')
+        if safe in seen_ids:
+            raise ValueError(
+                f"Sequence IDs '{seen_ids[safe]}' and '{r.id}' both map to the fold output "
+                f"name '{safe}', so one would overwrite the other and both would be scored "
+                "from a single fold. Rename one of them in the input FASTA."
+            )
+        seen_ids[safe] = r.id
 
     all_top_rows_df = []
 
@@ -265,7 +312,10 @@ def run_RNAplfold_top(seq_fasta: str, top_N: int = None, len_grna: int = 23,
             # verified over 52,536 windows of real transcripts, max raw difference 1.1e-16.
             # pandas' rolling mean uses compensated summation, so it does not drift on long
             # sequences the way a cumsum-based window would.
-            scores = pd.Series(averages_list).rolling(len_grna).mean().dropna().to_numpy()
+            # Sliced, not .dropna(): dropna would also remove any interior NaN and shift
+            # every later window, so scores[i] would silently stop describing window i.
+            # Slicing off the fixed (len_grna - 1) warm-up keeps index i == window start i.
+            scores = pd.Series(averages_list).rolling(len_grna).mean().to_numpy()[len_grna - 1:]
 
             # Both strands are reported: the target site as it appears in the input FASTA,
             # and its reverse complement. reverse_complement() follows the input alphabet
@@ -273,14 +323,16 @@ def run_RNAplfold_top(seq_fasta: str, top_N: int = None, len_grna: int = 23,
             # Column ORDER MATTERS: read_delimited_file() takes column 0 as the name and
             # column 1 as the sequence to align, so the target site must stay at index 1
             # and the reverse complement goes after it.
+            # Coordinates and score are kept numeric. As strings, Average_score was sorted
+            # lexicographically below - correct only by luck for values in [0, 1].
             rows_all = [
                 [
                     safe_id,
                     str(fasta[i:i + len_grna]),
                     str(fasta[i:i + len_grna].reverse_complement()),
-                    str(i + 1),                 # 1-based start
-                    str(i + len_grna),          # 1-based end
-                    str(round(float(scores[i]), 3)),
+                    i + 1,                      # 1-based start
+                    i + len_grna,               # 1-based end
+                    round(float(scores[i]), 3),
                 ]
                 for i in range(n_win)
             ]
@@ -292,24 +344,37 @@ def run_RNAplfold_top(seq_fasta: str, top_N: int = None, len_grna: int = 23,
                 columns=["Gene|Transcript", seq_col, rc_col,
                          "Seq_start", "Seq_end", "Average_score"]
             )
-            df_rows_sort = df_rows.sort_values(by='Average_score', ascending=False)
+            # Ties are broken by position, and the sort is stable ('mergesort'). Sorting on
+            # the score alone left tied gRNAs in whatever order the sort algorithm happened
+            # to produce, which differs between pandas versions - so the same input gave
+            # differently ordered output, and with -n a different set of top gRNAs.
+            df_rows_sort = df_rows.sort_values(
+                by=['Average_score', 'Seq_start'],
+                ascending=[False, True],
+                kind='mergesort',
+            )
             df_rows_sort['gRNA_name'] = (
                 df_rows_sort["Gene|Transcript"] + "_"
-                + df_rows_sort['Seq_start'] + "_"
-                + df_rows_sort['Seq_end']
+                + df_rows_sort['Seq_start'].astype(str) + "_"
+                + df_rows_sort['Seq_end'].astype(str)
             )
 
             all_top_rows_df.append(df_rows_sort.head(top_N) if top_N else df_rows_sort)
 
-    result = pd.concat(all_top_rows_df)
     seq_col = f"seq_{len_grna}nt"
     rc_col = f"seq_{len_grna}nt_revcomp"
+
+    # Drop empty frames (sequences shorter than len_grna) before concatenating: pandas 2.1+
+    # deprecates concatenating empty entries, and they contribute no rows either way.
+    non_empty = [d for d in all_top_rows_df if not d.empty]
+    result = pd.concat(non_empty, ignore_index=True) if non_empty else all_top_rows_df[0]
+
     # Base composition is reported for the target site (column seq_col), as before.
     # For the reverse complement these swap: G%<->C% and A%<->T%.
-    result['G_Percentage'] = round(result[seq_col].str.count('G', re.I) * 100 / len_grna, 3)
-    result['C_Percentage'] = round(result[seq_col].str.count('C', re.I) * 100 / len_grna, 3)
-    result['A_Percentage'] = round(result[seq_col].str.count('A', re.I) * 100 / len_grna, 3)
-    result['T_Percentage'] = round(result[seq_col].str.count('T', re.I) * 100 / len_grna, 3)
+    result['G_Percentage'] = round(result[seq_col].str.count('G', flags=re.I) * 100 / len_grna, 3)
+    result['C_Percentage'] = round(result[seq_col].str.count('C', flags=re.I) * 100 / len_grna, 3)
+    result['A_Percentage'] = round(result[seq_col].str.count('A', flags=re.I) * 100 / len_grna, 3)
+    result['T_Percentage'] = round(result[seq_col].str.count('T', flags=re.I) * 100 / len_grna, 3)
 
     return result[[
         'gRNA_name', seq_col, rc_col, "Gene|Transcript",
@@ -337,27 +402,25 @@ def water_cmdline(g_fasta: str, tran_fasta_fh: str) -> tuple:
     if shutil.which("water") is None:
         raise FileNotFoundError("The 'water' tool from EMBOSS is not installed or not in the PATH.")
 
+    # Argument list, not a shell string. This replaces Biopython's WaterCommandline:
+    # Bio.Application has emitted a BiopythonDeprecationWarning since 1.83 and is slated
+    # for removal, so the dependency is avoided entirely. Passing a list rather than a
+    # shell string also keeps the gRNA sequence out of a shell.
+    # '-auto' suppresses the interactive prompts EMBOSS would otherwise issue.
+    cmd = [
+        "water",
+        "-asequence", f"asis:{g_fasta}",
+        "-bsequence", tran_fasta_fh,
+        "-gapopen", str(WATER_GAPOPEN),
+        "-gapextend", str(WATER_GAPEXTEND),
+        "-outfile", "stdout",
+        "-auto",
+    ]
     try:
-        water_cmd = WaterCommandline(gapopen=10, gapextend=0.5)
-        water_cmd.asequence = "asis:" + g_fasta
-        water_cmd.bsequence = tran_fasta_fh
-        water_cmd.outfile = "stdout"
-
-        result = sb.run(
-            str(water_cmd),
-            stdout=sb.PIPE,
-            stderr=sb.PIPE,
-            text=True,
-            shell=True,
-            check=True
-        )
+        result = sb.run(cmd, stdout=sb.PIPE, stderr=sb.PIPE, text=True, check=True)
         return result.stdout, result.stderr
-
     except sb.CalledProcessError as e:
         logger.error(f"Error running water command: {e.stderr}")
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error in water_cmdline: {e}")
         raise
 
 
@@ -569,12 +632,33 @@ def read_delimited_file(file_path: str, sep: str = "\t", header: int = 0) -> dic
             f"Expected at least 2 columns in {file_path}, got {df.shape[1]}. "
             "Column 0 = gRNA name, column 1 = sequence."
         )
-    return dict(zip(df.iloc[:, 0], df.iloc[:, 1]))
+    names = df.iloc[:, 0]
+    # Building the dict keeps only the last entry per name; say so rather than lose gRNAs
+    # silently
+    dups = list(dict.fromkeys(names[names.duplicated()]))
+    if dups:
+        logger.warning(
+            f"{len(dups)} duplicate gRNA name(s) in '{file_path}'; only the last row of "
+            f"each is used: {dups[:10]}{' ...' if len(dups) > 10 else ''}"
+        )
+    return dict(zip(names, df.iloc[:, 1]))
 
 
 def read_fasta_file(fasta_fh: str) -> dict:
     """Read a FASTA file and return a {id: sequence} dictionary."""
-    return {rec.id: str(rec.seq) for rec in SeqIO.parse(fasta_fh, "fasta")}
+    seqs, dups = {}, []
+    for rec in SeqIO.parse(fasta_fh, "fasta"):
+        if rec.id in seqs:
+            dups.append(rec.id)
+        seqs[rec.id] = str(rec.seq)
+    if dups:
+        unique_dups = list(dict.fromkeys(dups))
+        logger.warning(
+            f"{len(unique_dups)} duplicate record ID(s) in '{fasta_fh}'; only the last "
+            f"occurrence of each is used: {unique_dups[:10]}"
+            f"{' ...' if len(unique_dups) > 10 else ''}"
+        )
+    return seqs
 
 
 def run_mismatch(
@@ -607,6 +691,14 @@ def run_mismatch(
     else:
         logger.error(f"Unsupported file format for gRNA file: {grna_input}")
         sys.exit(1)
+
+    # An empty dict would make the whole alignment step a silent no-op that still exits 0
+    # (e.g. a CSV read as FASTA yields no records). Fail instead.
+    if not grna_dict:
+        raise ValueError(
+            f"No gRNA sequences were read from '{grna_input}'. Check that the file is "
+            "non-empty and that its extension matches its format."
+        )
 
     # Sanitized copy (if needed) lives under results/ rather than /tmp, since a
     # transcriptome FASTA can be large; removed automatically when alignment finishes
@@ -669,6 +761,8 @@ def parse_arguments() -> tuple:
         epilog="For any questions Contact Huzaifa Hassan: hhassan@stowers.org"
     )
     parser._optionals.title = "Optional Arguments"
+    parser.add_argument("-v", "--version", action="version",
+                        version=f"gRNADesign {__version__}")
     subparsers = parser.add_subparsers(title="Subcommands", dest="subcommand")
 
     # 'all' subcommand
@@ -679,7 +773,8 @@ def parse_arguments() -> tuple:
     parser_all.add_argument("-t", "--transcript_fasta", type=str, required=True,
                             help="cDNA fasta file")
     parser_all.add_argument("-o", "--output_file", type=str, required=True,
-                            help="Output CSV file")
+                            help="Output CSV file; must end in '.csv' (it is re-read by "
+                                 "the mismatch step)")
     parser_all.add_argument("-n", "--top_N", type=int,
                             help="Top N gRNAs by score per sequence (default: 10)")
     parser_all.add_argument("-l", "--length", type=int,
@@ -731,7 +826,9 @@ def parse_arguments() -> tuple:
 if __name__ == "__main__":
     parser, args = parse_arguments()
 
-    if len(sys.argv) == 1:
+    # Covers both "no arguments" and "options but no subcommand"; without this the 'all'
+    # branch below would reach for args.fasta on a namespace that has no such attribute.
+    if args.subcommand is None:
         parser.print_help(sys.stderr)
         sys.exit(1)
 
@@ -748,7 +845,15 @@ if __name__ == "__main__":
         all_align_dir, mismatches_dir = mkdir(args.subcommand)
         run_mismatch(args, all_align_dir=all_align_dir, mismatches_dir=mismatches_dir)
 
-    elif args.subcommand == "all" or args.subcommand is None:
+    elif args.subcommand == "all":
+        # 'all' writes the design table and then re-reads it as the gRNA input, and that
+        # re-read dispatches on the file extension. A non-.csv name silently skipped the
+        # entire mismatch step (exit 0, no output), so reject it before any work is done.
+        if not args.output_file.endswith(".csv"):
+            parser.error(
+                f"--output_file must end in '.csv' for 'all' (got '{args.output_file}'); "
+                "the mismatch step re-reads the design output and dispatches on extension."
+            )
         grna_dir, all_align_dir, mismatches_dir = mkdir(args.subcommand)
         top_N  = args.top_N  or 10
         length = args.length or 22

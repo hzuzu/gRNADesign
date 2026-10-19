@@ -1,111 +1,141 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """
 Author: hhassan
 Date: 03/29/2024
-python script to select gRNA which are a certain distance apart based on the seq_start of the g_RNA and select the top 10 gRNAs based on the score
 
+Select gRNAs that are a minimum distance apart, based on the start/end coordinates
+written by the design module, keeping the highest-scoring ones.
+
+Input is the gRNA CSV from `gRNADesign.py design` (run it without -n so that all
+windows are available to choose from).
 """
-import pandas as pd
+import argparse
+import logging
 import sys
 
-
 import pandas as pd
 
-def select_gRNA(df, dist_grna=10, top_n=10):
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+logger = logging.getLogger(__name__)
+
+__version__ = "1.1.0"
+
+# The design module writes 'Gene|Transcript'. Older inputs used
+# 'Gene|Longest_transcript'; accept either so the column does not have to be renamed
+# by hand before running this script.
+GROUP_COLUMNS = ("Gene|Transcript", "Gene|Longest_transcript")
+
+REQUIRED_COLUMNS = ("gRNA_name", "Seq_start", "Seq_end", "Average_score")
+
+
+def resolve_group_column(df: pd.DataFrame) -> str:
+    """Return whichever accepted grouping column is present, else raise."""
+    for col in GROUP_COLUMNS:
+        if col in df.columns:
+            return col
+    raise ValueError(
+        f"No grouping column found. Expected one of {list(GROUP_COLUMNS)}; "
+        f"the file has {list(df.columns)}."
+    )
+
+
+def select_gRNA(df: pd.DataFrame, dist_grna: int = 10, top_n: int = 10) -> pd.DataFrame:
     """
-    Selects the top n rows based on 'Average_score' within each group of
-    'Gene|Longest_transcript' column, while ensuring that the gRNAs are at least dist_grna apart.
+    Select up to top_n gRNAs from one group, highest 'Average_score' first, keeping only
+    those whose start and end coordinates are at least dist_grna from every coordinate
+    already selected.
     """
     df_sorted = df.sort_values(by="Average_score", ascending=False)
-    
-    start = [] # store the start positions of selected IDs
-    end = [] # store the end positions of selected IDs
-    selected_ids = [] # store the selected IDs
 
-    for index, row in df_sorted.iterrows():
-        # store 1st id 
+    coords: list = []        # start and end positions of everything selected so far
+    selected_ids: list = []
+
+    for _, row in df_sorted.iterrows():
         if not selected_ids:
             selected_ids.append(row['gRNA_name'])
-            start.append(row['Seq_start'])
-            end.append(row['Seq_end'])
-        else:
-            # check if current id is at least 20 bp away from any previous start and any previous end in the list
-            if all(abs(row['Seq_start'] - i) >= dist_grna for i in start) and all(abs(row['Seq_start'] - i) >= dist_grna for i in end) and all(abs(row['Seq_end'] - i) >= dist_grna for i in start) and all(abs(row['Seq_end'] - i) >= dist_grna for i in end):
-                selected_ids.append(row['gRNA_name'])
-                start.append(row['Seq_start'])
-                end.append(row['Seq_end'])
-                if len(selected_ids) >= top_n:  
-                    break
+            coords.extend([row['Seq_start'], row['Seq_end']])
+            continue
+
+        # Keep the gRNA only if both of its ends clear every selected coordinate
+        far_enough = all(
+            abs(pos - c) >= dist_grna
+            for pos in (row['Seq_start'], row['Seq_end'])
+            for c in coords
+        )
+        if far_enough:
+            selected_ids.append(row['gRNA_name'])
+            coords.extend([row['Seq_start'], row['Seq_end']])
+            if len(selected_ids) >= top_n:
+                break
+
     return df_sorted[df_sorted['gRNA_name'].isin(selected_ids)]
 
-def select_gRNA_per_gene(df_fh, dist_grna=10, top_n=10):
+
+def select_gRNA_per_gene(df_fh: str, dist_grna: int = 10, top_n: int = 10) -> pd.DataFrame:
     """
-    Selects the top n rows based on 'Average_score' within each group of
-    'Gene|Longest_transcript' column, while ensuring that the 'Seq_start'
-    values are at least dist_grna apart.
-    
+    Apply select_gRNA to every gene/transcript group in the input CSV.
+
     Parameters:
-        df (DataFrame): Input DataFrame containing columns 'Gene|Longest_transcript', 'gRNA_name', 'Seq_start', 'Seq_end', and 'Average_score'.
-        dist_grna (int): Minimum distance between gRNAs.
-        top_n (int): Number of top rows to select.
-    
-    Returns:
-        DataFrame: Merged DataFrame containing the selected rows for each group.
-    """
-    # read the input DataFrame
-    df = pd.read_csv(df_fh, sep=',', header=0)
-    # Group the DataFrame by 'Gene|Longest_transcript' and apply the select_gRNA function to each group
-    grouped_df = df.groupby('Gene|Longest_transcript').apply(select_gRNA, dist_grna=dist_grna, top_n=top_n)
-
-    # Reset the index of the resulting DataFrame
-    grouped_df.reset_index(drop=True, inplace=True)
-    
-    return grouped_df
-
-
-def args():
-    """
-    Parses the command line arguments.
+        df_fh: Path to the gRNA CSV written by the design module.
+        dist_grna: Minimum distance between selected gRNAs.
+        top_n: Maximum number of gRNAs to keep per group.
 
     Returns:
-        argparse.Namespace: An object containing the parsed command line arguments.
+        DataFrame with the selected rows from every group.
     """
-    import argparse
+    try:
+        df = pd.read_csv(df_fh, sep=',', header=0)
+    except (OSError, ValueError) as e:
+        raise RuntimeError(f"Could not read gRNA CSV '{df_fh}': {e}") from e
 
-    parser = argparse.ArgumentParser(description='Selects the top n rows based on \'Average_score\' within each group of \'Gene|Longest_transcript\' column, while ensuring that the \'Seq_start\' values are at least dist_grna apart.',
-                                     usage=f'{sys.argv[0]} -f <df_fh> -d <dist_grna> -n <top_n>',
-                                     epilog='Contact Huzaifa Hassan at hhassan@stowers.org for help or questions.')
-    parser.add_argument('-f', '--df_fh', type=str, help='File path of the input CSV file.')
-    parser.add_argument('-d', '--dist_grna', type=int, default=30, help='Minimum distance between \'Seq_start\' values of selected rows. Default is 30.')
-    parser.add_argument('-n', '--top_n', type=int, default=10, help='Number of top rows to select within each group. Default is 10.')
-    args = parser.parse_args()
-    return args
+    group_col = resolve_group_column(df)
+    missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
+    if missing:
+        raise ValueError(f"Input '{df_fh}' is missing required column(s): {missing}")
 
-def main():
-    """
-    Main function that selects gRNA based on distance and top n criteria.
+    # Groups are iterated explicitly rather than via groupby().apply(). In pandas 2.2+
+    # that call warns because it operates on the grouping column, and pandas 3 drops that
+    # column from the result - which would silently remove the gene name from the output.
+    selected = [
+        select_gRNA(group, dist_grna=dist_grna, top_n=top_n)
+        for _, group in df.groupby(group_col, sort=False)
+    ]
+    result = pd.concat(selected, ignore_index=True) if selected else df.head(0)
+    logger.info(
+        f"Selected {len(result)} gRNA(s) from {df.groupby(group_col).ngroups} group(s) "
+        f"in '{group_col}' (min distance {dist_grna} bp, up to {top_n} per group)."
+    )
+    return result
 
-    Usage: python select_gRNA_dist.py -f <df_fh> -d <dist_grna> -n <top_n>
 
-    Args:
-        None
+def parse_arguments() -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Select the top gRNAs per gene by 'Average_score' while keeping them "
+                    "at least a minimum distance apart.",
+        usage=f'{sys.argv[0]} -f <df_fh> [-d <dist_grna>] [-n <top_n>]',
+        epilog='Contact Huzaifa Hassan at hhassan@stowers.org for help or questions.'
+    )
+    parser.add_argument('-f', '--df_fh', type=str, required=True,
+                        help='File path of the input gRNA CSV file.')
+    parser.add_argument('-d', '--dist_grna', type=int, default=30,
+                        help='Minimum distance between selected gRNAs. Default is 30.')
+    parser.add_argument('-n', '--top_n', type=int, default=10,
+                        help='Number of gRNAs to select within each group. Default is 10.')
+    parser.add_argument('-v', '--version', action='version',
+                        version=f'select_gRNA_dist {__version__}')
+    return parser.parse_args()
 
-    Returns:
-        None
-    """
-    args_ = args()
-    # check if  df_fh is not provided, if not print usage
-    if args_.df_fh is None:
-        print("Usage: python select_gRNA_dist.py -f <df_fh> -d <dist_grna> -n <top_n>")
-        sys.exit(1)
-    
-    df_fh = args_.df_fh
-    dist_grna = args_.dist_grna
-    top_n = args_.top_n
 
-    result_df = select_gRNA_per_gene(df_fh, dist_grna, top_n)
-    result_df.to_csv(df_fh.replace('.csv', '.' +  str(dist_grna) + 'bp.top_' + str(top_n) + '.csv'), index=False)
+def main() -> None:
+    """Select gRNAs by distance and score, and write them next to the input file."""
+    args = parse_arguments()
+
+    result_df = select_gRNA_per_gene(args.df_fh, args.dist_grna, args.top_n)
+    out_fh = args.df_fh.replace('.csv', f'.{args.dist_grna}bp.top_{args.top_n}.csv')
+    result_df.to_csv(out_fh, index=False)
+    logger.info(f"Wrote {out_fh}")
 
 
 if __name__ == '__main__':
