@@ -1,6 +1,6 @@
 # gRNADesign: A pipeline to design gRNA and calculate RNA fold scores and mismatches to cDNA's
 
-**v1.2.0** · Python 3.12 · It is specifically designed for Bazzini Lab at Stowers Institute for Medical Research.
+**v1.2.1** · Python 3.12 · It is specifically designed for Bazzini Lab at Stowers Institute for Medical Research.
 
 > **Note on v1.1.0 onward:** parts of these releases — the Python 3.12 / pandas 2.x migration,
 > bug fixes, the conda environment file and this README — were updated with the help of
@@ -148,7 +148,7 @@ with no reinstall.
 Check the different modules in the pipeline
 
 ``` bash
-python gRNADesign.py --help
+grnadesign --help
 
 usage:
 
@@ -172,14 +172,14 @@ To check the arguments for each module, run
 
 ```bash
 
-python gRNADesign.py <submodule name> --help
+grnadesign <submodule name> --help
 
 
-python gRNADesign.py design --help
+grnadesign design --help
 
-python gRNADesign.py mismatch --help
+grnadesign mismatch --help
 
-python gRNADesign.py all --help
+grnadesign all --help
 
 usage:  all [-h] -f FASTA -t TRANSCRIPT_FASTA -o OUTPUT_FILE [-n TOP_N]
             [-l LENGTH] [-m MISMATCHES] [-p NUM_PROCESSES]
@@ -208,7 +208,7 @@ Arguments:
   --winsize WINSIZE     RNAplfold window size, local mode only (default: 70)
 
 
-python gRNADesign.py design --help
+grnadesign design --help
 
 usage:  design [-h] -f FASTA -o OUTPUT_FILE [-n TOP_N] [-l LENGTH]
                [--fold_mode {local,global}] [--winsize WINSIZE]
@@ -231,7 +231,7 @@ Arguments:
   --winsize WINSIZE     RNAplfold window size, local mode only (default: 70)
 
 
-python gRNADesign.py mismatch --help
+grnadesign mismatch --help
 
 usage:  mismatch [-h] -g GRNA_FILE -t TRANSCRIPT_FASTA [-p NUM_PROCESSES]
                  [-m MISMATCHES]
@@ -251,18 +251,19 @@ Arguments:
 
 Note: `-m 0` keeps only perfect matches. The mismatch output files are named `mismatches_<m>_alignments_<gRNA>.csv`.
 
-These are examples for each module
+These are examples for each module. Each `grnadesign ...` command below can equally be run as `python gRNADesign.py ...` if you have not installed the package.
+
 
 ```bash
 
-python gRNADesign.py all -f gene.fasta -t cDNA_transcript.fasta -o gRNA.csv -n 10 -l 22 -m 5
+grnadesign all -f gene.fasta -t cDNA_transcript.fasta -o gRNA.csv -n 10 -l 22 -m 5
 
-python gRNADesign.py design -f gene.fasta -o gRNA.csv -n 10 -l 22 
+grnadesign design -f gene.fasta -o gRNA.csv -n 10 -l 22 
 
-python gRNADesign.py mismatch -g  gRNA.csv -t cDNA_transcript.fasta -m 5 -p 4
+grnadesign mismatch -g  gRNA.csv -t cDNA_transcript.fasta -m 5 -p 4
 
 # reproduce the RNAfold web server readout instead of the local sliding window
-python gRNADesign.py design -f gene.fasta -o gRNA.csv -n 10 -l 22 --fold_mode global
+grnadesign design -f gene.fasta -o gRNA.csv -n 10 -l 22 --fold_mode global
 
 ```
 
@@ -332,21 +333,25 @@ Note: the script accepts either `Gene|Transcript` (what the design module writes
 Usage:
 
 ```bash
-python select_gRNA_dist.py -h
-usage: select_gRNA_dist.py -f <df_fh> [-d <dist_grna>] [-n <top_n>]
+grnadesign-dist -h
+usage: grnadesign-dist [-h] -f DF_FH [-d DIST_GRNA] [-n TOP_N] [-v]
 
-Select the top gRNAs per gene by 'Average_score' while keeping them at least a minimum
-distance apart.
+Select the top gRNAs per gene by 'Average_score' while keeping them at least a
+minimum distance apart.
 
 options:
   -h, --help            show this help message and exit
   -f DF_FH, --df_fh DF_FH
                         File path of the input gRNA CSV file.
   -d DIST_GRNA, --dist_grna DIST_GRNA
-                        Minimum distance between selected gRNAs. Default is 30.
+                        Minimum distance between selected gRNAs. Default is
+                        30.
   -n TOP_N, --top_n TOP_N
-                        Number of gRNAs to select within each group. Default is 10.
+                        Number of gRNAs to select within each group. Default
+                        is 10.
   -v, --version         show program's version number and exit
+
+Contact Huzaifa Hassan at hhassan@stowers.org for help or questions.
 
 ```
 

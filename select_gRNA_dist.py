@@ -12,14 +12,13 @@ windows are available to choose from).
 """
 import argparse
 import logging
-import sys
 
 import pandas as pd
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 # The design module writes 'Gene|Transcript'. Older inputs used
 # 'Gene|Longest_transcript'; accept either so the column does not have to be renamed
@@ -111,10 +110,12 @@ def select_gRNA_per_gene(df_fh: str, dist_grna: int = 10, top_n: int = 10) -> pd
 
 def parse_arguments() -> argparse.Namespace:
     """Parse command line arguments."""
+    # No explicit usage= string: argparse builds it from prog, which is the basename of
+    # how the tool was invoked. Interpolating sys.argv[0] printed the full absolute path
+    # of the installed entry point in the usage line.
     parser = argparse.ArgumentParser(
         description="Select the top gRNAs per gene by 'Average_score' while keeping them "
                     "at least a minimum distance apart.",
-        usage=f'{sys.argv[0]} -f <df_fh> [-d <dist_grna>] [-n <top_n>]',
         epilog='Contact Huzaifa Hassan at hhassan@stowers.org for help or questions.'
     )
     parser.add_argument('-f', '--df_fh', type=str, required=True,

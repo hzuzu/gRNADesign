@@ -16,6 +16,10 @@
 # see gRNADesign.yml. Run 'gRNADesign.py -h' for usage.
 #
 # ---------------------------------------------------------------------------------
+# v1.2.1  select_gRNA_dist no longer interpolates sys.argv[0] into its usage line,
+#         which printed the full absolute path of the installed entry point.
+#         README examples use the installed commands. No change to any output.
+#
 # v1.2.0  Optional packaging: `pip install --no-deps -e .` installs the scripts as
 #         the commands `grnadesign` and `grnadesign-dist`. Running
 #         `python gRNADesign.py ...` is unchanged. No change to any output.
@@ -74,7 +78,7 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 # Smith-Waterman gap penalties passed to EMBOSS water (EDNAFULL matrix: +5 match / -4
 # mismatch). Verified not to change the ranking of top hits against (10, 5) and (16, 4).
