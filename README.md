@@ -1,8 +1,13 @@
-
-
 # gRNADesign: A pipeline to design gRNA and calculate RNA fold scores and mismatches to cDNA's
 
 **v1.1.0** · Python 3.12 · It is specifically designed for Bazzini Lab at Stowers Institute for Medical Research.
+
+> **Note on v1.1.0:** parts of this release — the Python 3.12 / pandas 2.x migration,
+> bug fixes, the conda environment file and this README — were updated with the help of
+> an AI coding agent (Claude Code). All changes were reviewed, and verified against a
+> regression suite that checks the design, mismatch and `all` outputs byte-for-byte
+> against the previous release on both the new and the old interpreter stacks. The
+> scoring formula itself is unchanged and remains the method designed by Ariel Bazzini.
 
 ## Information
 
@@ -15,10 +20,10 @@ There are 3 submodules in this pipeline
 
 The design module designs gRNAs from an input fasta file. This modules runs RNAplfold and computes a score using method designed by Ariel Bazzini
 
-1. Run RNA fold for each gene (Complete sequence). RNA fold takes a fasta sequence as input along with the length of gRNAs.
-2. Take sliding window of gRNAs for a specific length from gene fasta. (The length of gRNA will be equal length from step 1. e.g., 20, 22, 23)
-3. Compute the mean score of all columns (The number of columns will be equal to length of the gRNA) in each row. This gives one value for each bp of a gene.
-4. For each sequence from step 2, take the scores from step 3 (The number of scores should be equal to the length of the gRNA sequence). Compute a mean of these scores to give one single score for each gRNA
+1. Fold each input sequence with `RNAplfold -W <winsize> -u <length>` (or `RNAfold -p` in `global` mode). For every position this gives the probability that stretches of length 1..`<length>` ending there are unpaired.
+2. Average those columns per position. This gives one accessibility value per base.
+3. Slide a window of `<length>` nt along the sequence and average the per-base values inside it. That mean is the gRNA's `Average_score`, so the most accessible sites score highest.
+4. Sort by `Average_score` (highest first, ties broken by position) and keep the top `-n` per sequence, or all windows if `-n` is omitted.
 
 #### Folding mode: `--fold_mode`
 
@@ -54,6 +59,15 @@ How it works:
 3. Only the **same strand** as the transcript FASTA is searched (no reverse complement).
 4. The intended target transcript is not excluded; it appears in the output with 0 mismatches.
 5. Transcript IDs containing `|` are aligned as `_` internally (EMBOSS would otherwise rename them `EMBOSS_001`, ...) and restored in the output. Zero-length records are skipped by `water` and reported as a warning.
+
+**What `total_mismatches` does and does not tell you**
+
+* It is **position-blind**. A mismatch at spacer position 2 and one at position 18 both report `total_mismatches = 1`, but they are not equivalent biologically: Cas13d tolerates mismatches near the spacer ends, while spacer nucleotides 15-21 are largely intolerant of them ([Wessels et al. 2020](https://doi.org/10.1038/s41587-020-0456-9)). To judge whether a near-match is a genuine off-target risk, look at where the mismatch sits in the alignment, not just the count.
+* **Gaps are counted as mismatches.** A hit reported as 3 mismatches may be 19 identities plus a 1-nt bulge, which is energetically different from 3 substitutions.
+* **No gene-level collapsing.** A transcriptome has several isoforms per gene, so one off-target locus can appear as several rows with near-identical coordinates.
+* **No expression weighting.** An off-target in a transcript that is not expressed in your system is not a real risk; the module has no way to know that.
+
+Scale: one gRNA against 110,027 zebrafish transcripts takes roughly 1m40s and ~650 MB of memory. Memory scales with `-p`, so `-p 8` needs around 5 GB.
 
 **Input file**
 The input files are:
@@ -113,6 +127,7 @@ Script to design gRNA's using RNAplfold and formula designed by Ariel Bazzini
 
 Optional Arguments:
   -h, --help            show this help message and exit
+  -v, --version         show program's version number and exit
 
 Subcommands:
   {all,design,mismatch}
@@ -167,6 +182,7 @@ Arguments:
 python gRNADesign.py design --help
 
 usage:  design [-h] -f FASTA -o OUTPUT_FILE [-n TOP_N] [-l LENGTH]
+               [--fold_mode {local,global}] [--winsize WINSIZE]
 
 Arguments:
   -h, --help            show this help message and exit
@@ -175,9 +191,15 @@ Arguments:
   -o OUTPUT_FILE, --output_file OUTPUT_FILE
                         Output CSV file
   -n TOP_N, --top_N TOP_N
-                        Top N gRNAs by score per sequence (default: all windows)
+                        Top N gRNAs by score per sequence (default: all
+                        windows)
   -l LENGTH, --length LENGTH
                         gRNA length in bp (default: 22)
+  --fold_mode {local,global}
+                        local = RNAplfold sliding window (default); global =
+                        RNAfold whole-sequence fold, matches the RNAfold web
+                        server
+  --winsize WINSIZE     RNAplfold window size, local mode only (default: 70)
 
 
 python gRNADesign.py mismatch --help
@@ -237,6 +259,8 @@ The columns of gRNA.csv are described below:
 * Seq_start : The start coordinate where this gRNA is from on the sequence
 * Seq_end : The end coordinate where this gRNA is from on the sequence
 * Average_score : Average is the score defined in the design module
+
+Note on ordering (changed in v1.1.0): gRNAs are sorted by `Average_score`, highest first, with **ties broken by `Seq_start`** using a stable sort. Before v1.1.0 tied gRNAs came out in whatever order the sort algorithm produced, which differs between pandas versions, so the same input could give a different top-`n` on a different machine. Rows with tied scores may therefore be ordered differently than in files generated before v1.1.0. **The scores themselves are unchanged.**
 * G_Percentage : Percentage of Base 'G' in the gRNA
 * C_Percentage : Percentage of Base 'C' in the gRNA
 * A_Percentage : Percentage of Base 'A' in the gRNA
@@ -256,8 +280,8 @@ The columns of the alignment files (eg all_alignments_gRNA_1.csv) are described 
 * aligned_length : Length of the local alignment in columns (including gap columns)
 * identity : Number of identical positions in the alignment
 * identity_perc : identity / aligned_length, as a percentage (number only, no `%` sign)
-* similarity : Number of similar positions as reported by water
-* similarity_perc : similarity / aligned_length, as a percentage
+* similarity : Number of similar positions as reported by water. For nucleic acids with the EDNAFULL matrix this is always equal to `identity` (verified on every row of a full transcriptome run), so the column carries no extra information; it is kept for backward compatibility.
+* similarity_perc : similarity / aligned_length, as a percentage. Equal to `identity_perc` for the same reason.
 * gRNA_align_start : Alignment start on the gRNA (1-based)
 * gRNA_align_end : Alignment end on the gRNA
 * seq_align_start : Alignment start on the transcript (1-based)
@@ -267,11 +291,6 @@ The columns of the alignment files (eg all_alignments_gRNA_1.csv) are described 
 * total_mismatches : aligned_length + (gRNA_align_start - 1) + (gRNA length - gRNA_align_end) - identity. This counts mismatches, gaps, and the gRNA bases left outside the local alignment at either end.
 
 Note: Please feel free to compute your own mismatch score from files in results/all_alignments if needed.
-
-
-
-**This page is still being update**
-
 
 
 **Helper Scripts**
